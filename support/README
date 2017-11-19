@@ -1,0 +1,6 @@
+These files are intended to support the installation of lxtools
+on particular platforms.
+
+ftw/        used for FreeBSD
+
+$Id: README,v 1.1 2000/10/09 00:04:24 gonter Exp $

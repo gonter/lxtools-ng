@@ -1,0 +1,126 @@
+
+lxbackup is a program to automatically do backups and restores with
+an HP 95LX, 100LX or 200LX.
+
+The default is to backup any file on the HP which is newer than its
+most recent backup copy (if any).  Optionally, you may backup all files
+newer than a specified date, newer than a specified file, or all
+files regardless of age.
+
+
+
+To do backups:
+
+First, start the hp Filer utility.  If necessary, set the Filer communications
+protocol to the values of your choice (e.g. port = com1, buadrate = 38400).
+
+Second, on the Unix box, cd to the directory you want to do the backup
+into, and run lxbackup.  Any files in the HP that are newer than
+corresponding files in the current directory, or are not found in the
+current directory will be backed up (incremental backup.)
+
+    options:
+
+	<dir> <dir>...		directories to back up (C:\)
+
+	-all			all files regardless of age.
+	-since <mmddhhmm[yy]>	all files modified since date
+	-newer <filename>	all files newer than specified file
+	-v			verbose
+	-v -v			even more verbose
+	-n			not really.  Just show what would be done.
+	-1|2|3|4		set com port (1)
+	-d <devname>		set full com port name (e.g. /dev/ttya)
+	-b <baud>		set baud rate (38400)
+	-l			list remote files only
+	-restore		restore instead of backup
+	-q|h|?			quick help
+	-exclude <pat...>	exclude files matching patterns (must be last)
+
+ Return values:
+	0 = success
+	1 = failure
+	2 = user error
+	3 = internal error
+
+
+
+Examples:
+
+  Note: you should always run lxbackup from a directory set aside for
+  backups.
+
+  Backup your C: disk, baud rate defaults to 38400, port defaults to
+  first port, directory defaults to C:, backup everything in sight.
+
+	lxbackup
+
+  Backup your C: disk, use 2nd port, set baud rate to 19200.
+
+	lxbackup c: -2 -baud 19200
+
+  Check your C: and A: disks, see which files would be backed up.
+  Skip any files ending with .exe, .exm, or .com
+
+	lxbackup c: a: -v -exclude .exe .exm .com
+
+  Backup your C: and A: disks.  Watch progress of backup.
+  Skip any files ending with .exe, .exm, or .com
+
+	lxbackup c: a: -v -exclude .exe .exm .com
+
+  Backup some specific directories:
+
+	lxbackup c:/_dat c:/games c:/pgp -v -exclude .exe .com
+
+  Here is the shell script I use on my unix box to execute my
+  daily backups.  Executables (.exm, .exe, .com) are not backed up in
+  order to save space.
+
+	#! /bin/sh
+
+	cd $HOME/hp100/backups
+	lxbackup c: a: -v -d /dev/ttyb -exclude .exm .exe .com
+
+    (This creates the subdirectories $HOME/hp100/backups/c:/ and
+    $HOME/hp100/backups/a:/)
+
+
+
+  Restore everything from your C: disk.  Baud rate defaults to 38400, port
+  defaults to first port.  All files which are older on the HP or are
+  completely missing are restored.
+
+	lxbackup -restore
+
+  Restore one specific directory:
+
+	lxbackup c:/games -2 -baud 19200
+
+  Restore all files which have been modified on local disk more recently
+  than the file "lastbackup.list"
+
+	lxbackup c: -v -restore -newer lastbackup.list
+
+
+
+Notes:
+
+	Upper case and lower case do not matter.  Lxbackup will convert
+	all filenames to upper case for the HP, and lower case for the
+	local file systems.
+
+	Likewise, it does not matter if you use '/' or '\' as the
+	directory seperator.
+
+	It is not required to put the drive letter in the directory
+	name, but highly recommended.  Whichever you do, be consistent,
+	as this is the name lxbackup will use for the directory into
+	which the files will be stored.  If you use a drive letter, the
+	backups will be done into a directory with that drive letter as
+	a name, e.g. "c:/".  (Unix allows ':' (and practically anything
+	else) as part of a directory or file name)
+
+	Order of directories and options is unimportant, except that
+	the -exclude option must be the last thing on the command
+	line.

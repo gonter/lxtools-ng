@@ -1,0 +1,223 @@
+.nr N -1
+.nr D 5
+.TH LXtools l Local
+.UC 4
+.SH NAME
+LX tools - a set of utilities to access files on the HP100LX/HP200LX palmtop computers
+.SH SYNOPSIS
+.B lxdir
+[<opt>] [<directory name>|<file name>]
+.br
+.B lxcopy
+[<opt>] [-r] [-a] [-o] <source> {<source>} <destination>
+.br
+.B lxdel
+[<opt>] <file name>
+.br
+.B lxmkdir
+[<opt>] <directory name>
+.br
+.B lxrmdir
+[<opt>] <directory name>
+.PP
+where <opt> can be: [-1|-2|-3|...|-8] [-b <baud>]
+.SH DESCRIPTION
+.\" This defines appropriate quote strings for nroff and troff
+.ds lq \&"
+.ds rq \&"
+.if t .ds lq ``
+.if t .ds rq ''
+.\" Just in case these number registers aren't set yet...
+.if \nN==0 .nr N 10
+.if \nD==0 .nr D 5
+.I
+LXtools
+is a set of utilities that let you access files and directories on the
+HP100LX and HP200LX palmtop computers using a serial line. In order to use
+the LX tools, you need to connect your palmtop with the Unix machine using a
+serial cable. Then, you have to launch Filer on the palmtop and adjust the
+communication options in the "Communications/Remote Settings..." dialog
+of Filer to 38400 baud, Com1 and server mode enabled. That's it.
+
+.I lxdir
+displays the contents of a directory on the palmtop.
+.I lxcopy
+copies one or more files from the Unix system to the palmtop or
+the other way round.
+.I lxdel
+deletes a file on the palmtop.
+.I lxmkdir
+creates a new directory on the palmtop. If you tell it to create
+a:/b/c/d/e/f and any of the directories b, c, d or e do not exist,
+it creates them on the fly.
+.I lxrmdir
+deletes a directory on the palmtop.
+
+.SH OPTIONS
+.TP
+.B
+-1, -2, -3 ... -8
+sets serial line 1, 2, 3 ... 8, respectively. Default is -1.
+.TP
+.B -b <baudrate>
+sets the baud rate to <baudrate>. Default is 38400.
+.TP
+.B -r
+tells lxcopy to recursively enter directories and, thus, copy
+all files in all subdirectories too.
+.TP
+.B -a
+tells lxcopy to only copy files from the LX that have the archive
+bit set. The archive bit is set whenever you modify a file. It can
+be cleared using the ATTRIB command (see ATTRIB /?). 
+.TP
+.B -o
+tells lxcopy to not overwrite already existing files when copying
+from the LX.
+.SH EXAMPLES
+.TP
+.B
+lxdir c:/_dat
+displays the contents of the C:\\_DAT directory of the palmtop.
+.TP
+.B
+lxdir "c:/_dat/*.env"
+displays all .ENV files in the C:\\_DAT directory. Note that quotes
+are needed so that the wildcards are not expanded locally.
+.TP
+.B
+lxcopy a:/bin/gaga.com gugu.com
+copies the file A:\\BIN\\GAGA.COM from the palmtop to the current
+directory of the Linux system and names it 'gugu.com'
+.TP
+.B
+lxcopy a:/bin/gaga.com .
+copies the file  A:\\BIN\\GAGA.COM from the palmtop to the current
+directory of the Linux system and names it 'GAGA.COM'
+.TP
+.B
+lxcopy a:/bin .
+copies all files from the A:\\BIN directory of the palmtop to
+the current directory on the Linux system.
+.TP
+.B
+lxcopy "a:/bin/*.com" a:/util/gaga.exe /usr/local/test
+copies all .COM files from the A:\\BIN directory of the palmtop and
+the file A:\\UTIL\\GAGA.EXE to the /usr/local/test directory on the
+Linux system.
+.TP
+.B
+lxcopy gaga.c a:/trash/gugu.c
+copies the file gaga.c from the current directory of the Linux
+system to A:\\TRASH\\GUGU.C on the palmtop.
+.TP
+.B
+lxcopy gaga.c a:/trash
+copies the file gaga.c from the current directory of the Linux
+system to A:\\TRASH\\GAGA.C on the palmtop.
+.TP
+.B
+lxcopy ../*.c *.c c:/src
+copies all .c files in the current directory and the parent directory
+of the Linux system to the C:\\SRC directory on the palmtop.
+.TP
+.B
+lxcopy -r a: /usr/backup/hp/a
+copies all files on drive A: to /usr/backup/hp/a and creates subdirectories
+on the fly.
+.TP
+.B
+lxcopy -r /usr/backup/hp/a a:
+copies all files in all subdirectories of /usr/backup/hp/a to drive a:
+and creates subdirectories on the fly.
+.TP
+.B
+lxcopy -r -a a:/data /usr/backup/hp/a
+copies all files in all subdirectories of a:\DATA that have the archive
+bit set.
+.TP
+.B
+lxdel c:/test.txt
+deletes the file C:\\TEST.TXT.
+.TP
+.B
+lxmkdir c:/gugus
+creates the directory C:\\GUGUS on the palmtop.
+.TP
+.B
+lxrmdir c:/gugus
+deletes the directory C:\\GUGUS on the palmtop.
+
+.SH NOTES
+
+lxcopy finds out from where to where you want to copy by
+looking for a ':' in the specified path. Therefore,
+a path on the LX must always have a drive specified.
+.PP   
+All path names use the '/' character. Do not use a '\\' even for
+files on the palmtop.
+.PP
+If you have problems with transfering files, you can try a lower
+baud rate. Set your palmtop, e.g., to 19200 baud and run the
+LX tools with the "-b 19200" option.
+
+.SH ENVIRONMENT
+
+The device name and number as well as the baud rate can be overriden
+by environment variables. If these variables are set, the corresponding
+command line options are ignored:
+.TP
+LXTOOLS_LINE
+specifies the device to be used, e.g. "/dev/ttya".
+.TP
+LXTOOLS_BAUD
+specifies the baud rate to be used, e.g. "9600".
+.PP
+Also the tools normally send their output to STDERR, but this behavior
+can be overriden with another environment variable:
+.TP
+LXTOOLS_STDOUT
+if it exists and is not empty will cause output to be sent to STDOUT;
+also ensures that all tools give an exit code of 0.
+
+.SH DIAGNOSTICS
+
+If you see the message "Cannot open /dev/cua0", most probably you have no
+permissions to access the serial line device. It might be owned by root and
+has read/write access only by the owner for security reasons. If you do not
+intend to use this serial port for logging in into your machine, just change
+the permissions as root using: "chmod o+r+w /dev/cua0".
+.PP
+If the serial port behaves "strangely", e.g. if the permissions suddenly
+are altered again or the baud rate is reset automatically, you most
+likely have a "getty" running on the serial port. Check the file
+/etc/inittab or /etc/ttytab. You have to either stop getty running on
+that port or choose a different port for the connection to the palmtop.
+
+.SH BUGS
+
+Unknown. Probably none :-)
+
+.SH COPYRIGHT
+
+Copyright (c) 1995 by A. Garzotto.
+Portions Copyright 1995 by "The PAL Group".
+All rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation.
+
+.SH ACKNOWLEDGMENTS
+
+I want to thank the contributors to the PAL (Palmtop Application
+Library) who provided the basic routines the LX tools use. A
+special thank to Harry Konstas who "hacked" the communication
+format the HP Filer application uses.
+.PP
+Andreas Garzotto, December 1995
+.PP
+This man page was updated to add information about the 
+LXTOOLS_STDOUT environment variable option in version 1.1a-Tk
+.PP
+Peter Watkins, August 1999

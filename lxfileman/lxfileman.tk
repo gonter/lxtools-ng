@@ -1,0 +1,2224 @@
+#!/usr/bin/env wish
+
+set Version "0.96d"
+
+;# --------------------------------------------------------------------------
+;#
+;#          LXFileman, a Tcl/Tk file manager for the HP 200LX palmtop
+;# 
+;#                GNU General Public License Copyright 1997 - 2001
+;#                     by Peter Watkins, peterw@usa.net
+;#		    
+;#  LXFileman is a simple Tk-based front end for Andreas Garzotto's excellent
+;#  "LXTOOLS" utilities for manipulating files on an HP 200LX palmtop via the
+;#  Filer's "Server Mode." LXFileman will not work with LXTOOLS version 1.1a,
+;#  so it is normally distributed with a variation I call version 1.1a-Tk.
+;#  Future versions of LXTOOLS should be compatible with LXFileman.
+;#
+;#	You probably want at least version 1.1d for Y2k fixes!
+;#
+;#  LXFileman is configurable via the UserOption values below, most of which 
+;#  are available in simple pull-down menus from the GUI. Preferences are
+;#  stored in a file called $HOME/.lxfilemanrc whose format is very rigid,
+;#  but which can be edited by hand if needed.
+;#
+;#  Note that, of course, the first line must reference your copy of "wish".
+;#
+;#  LXFileman was developed and tested on an Intel Linux system running 
+;#  Tcl 7.6x and Tk 4.2x; if you have trouble with it, please let me know 
+;#  at "peterw@usa.net". Code fixes are, of course, most welcome.
+;# 
+;#  Most Linux distributions come with good Tcl/Tk packages. If you need to
+;#  roll your own, Tcl is now available from Sourceforge:
+;#	http://sourceforge.net/projects/tcl
+;#
+;#  Where to get LXFileman & LXTOOLS:
+;#   The latest LXFileman should be at the Palmtop Network's S.U.P.E.R. site,
+;#      http://www.palmtop.net/supernew.html
+;#   ...though you should also check my Tux space:
+;#	http://www.tux.org/~peterw/
+;#   ...and the lxtools-ng page at Sourceforge...
+;#	http://sourceforge.net/projects/lxtools-ng
+;#   The latest official LXTOOLS should be there as well, or try Andreas' site,
+;#      http://www.dasoft.com/
+;#
+;# Note about code quality, or lack thereof. I swear, my Tcl skills
+;#  have improved greatly since writing this. I just haven't had the
+;#  time or interest to go back and clean this up (or, better, rewrite
+;#  most of it) since the program "works for me". if you want to learn
+;#  Tcl/Tk, you would be well advised to buy a good book instead of 
+;#  looking at this code!
+;#
+;#                                              -Peter Watkins, January 2001
+;#
+;# --------------------------------------------------------------------------
+
+;# Debugging
+set globalDebugLevel 0
+
+proc DebugInfo {level args} {
+        global globalDebugLevel
+        if { $globalDebugLevel >= $level } {
+                uplevel 1 $args
+        }
+}
+  
+;# USER OPTIONS
+;# Note: all options can also be changed by editing $HOME/.lxfilemanrc
+
+;# User options that we actually listen to (and are in menus)
+set LineSpeed 19200
+set SerialPort "/dev/ttyS0"
+set AlternatePort "/dev/palmtop"
+set 2FileMark 1		;# file double click, 0 = info, 1 = mark
+set UNIXShowHidden 1		;# show hidden UNIX files/dirs, 0 = no, 1 = yes
+set UNIXDirsFirst 1
+set LXStartDir " "
+set UNIXStartDir $env(HOME)
+set Overwrite 1		;# for the -o switch of lxcopy
+set ForceRM 1 		;# for the -f switch of rm
+set OverwriteLX	0	;# if 1, will auto-delete LX files to make way
+set LXSortAlpha 1
+set FilerKeyF2  1
+set FilerKeyDel  0
+set InfoKeyI 1
+set ConfirmDeletions 1
+;# Drive buttons. A-H are available in menus, otherwise edit here or in ~/.lxfilemanrc
+set Drive1 "A:/"
+set Drive2 "C:/"
+set Drive3 "D:/"
+set Drive4 "E:/"
+set Drive5 "F:/"
+set NumDrives "5"
+
+;# User options we care about but don't let you pick in the GUI
+;# ListFont: Pick a nice fixed-width font, I use normal Courier 7.5 pts
+;# To check your (Courier) fonts, start up the interactive tclsh and type 'xlsfonts "*Courier*" '
+set ListFont "-adobe-courier-medium-r-normal--0-0-75-75-m-0-iso8859-1"
+
+;# This name should be in /usr/lib/X11/rgb.txt (or something like that)
+set ListBGColor "lightblue"
+
+;# Screen size & position
+set Geometry ""
+
+;# Test the output of ls -laF to auto-configure ls parsing
+set rc [catch {set temp_out [exec "ls" "-ldF" "/"] }]
+if {$rc != 0 } {
+	puts stderr "Cannot execute \"ls -ldF /\""
+	exit 1
+} else {
+	DebugInfo 5 puts "temp_out is \"$temp_out\""
+	set acloop 0
+	set name_field -1
+	while {$name_field < 0 } {
+		set this_pos [lindex $temp_out $acloop]
+		if {$this_pos == "//" } {
+			set name_field $acloop
+			set FilenameLSFieldNum $acloop
+			set FileSizeLSFieldNum [expr ($acloop - 4)]
+			DebugInfo 5 puts "FilenameLSFieldNum is $FilenameLSFieldNum and FileSizeLSFieldNum is $FileSizeLSFieldNum"
+		}
+		incr acloop
+	}
+} 
+
+;# if Linux, do the setserial stuff
+set osName ""
+set rc [catch {set osName [exec "uname" {--sysname}] } ]
+if { ($rc == 0) && ( [string compare $osName Linux] == 0) } {
+	set isLinux 1
+	DebugInfo 5 puts stderr "We have Linux"
+} else {
+	set isLinux 0
+	DebugInfo 5 puts stderr "rc is $rc and osName is \"$osName\""
+}
+
+;# Global values
+set LXPwd " "
+set UNIXPwd " "
+set UNIXPwdBase ""
+set UNIXPwdPattern ""
+set SidePtr ""
+set CmdLXDir "lxdir"
+set CmdLXCopy "lxcopy"
+set CmdLXDel "lxdel"
+set CmdLXRmdir "lxrmdir"
+set CmdLXMkdir "lxmkdir"
+set CmdSetserial "setserial"
+set LXFilemanRCName [format "%s/.lxfilemanrc" $env(HOME)]
+set LXFilemanRCPerms "600"
+set env(LXTOOLS_STDOUT) "YES"
+set RELastLXLine [format "\n\[^\n\]*\$"]
+set REFirstLXLine [format "^\[^\n\]*\n"]
+set REUNIXLineEnd [format "\n"]
+set StringValUNIXLineEnd [format "\n"]
+set StringValTab [format "\t" ]
+set RELastUNIXLine [format "\n\[^\n\]*\$"]
+set REFirstUNIXLine [format "^\[^\n\]*\n"]
+
+;# Initialize enough array slots to make dot and dot-dot for initial pattern match
+for {set loop 0} {$loop <= 2} {incr loop} {
+	set LXDisplayArray($loop) ""
+	set LXDateStampArray($loop) ""
+	set LXTimeStampArray($loop) ""
+	set UNIXDisplayArray($loop) ""
+	set UNIXFullInfoArray($loop) ""
+	set UNIXFileSizeArray($loop) ""
+}
+set LXNumFilesShown 0
+set UNIX_num_files 0
+set LXListboxNumFiles 0
+set UNIXListboxNumFiles 0
+
+;# Change the UserOptions based on $HOME/.lxfilemanrc
+set rc [catch {set rcfile [open $LXFilemanRCName]} ]
+if {$rc == 0 } {
+	while { [gets $rcfile Line] > -1 } {
+		regsub "\#\.\*\$" $Line "" Line
+		set rephrase [format "^\.\*%s" $StringValTab]
+		set rc2 [regexp $rephrase $Line var_name]
+		if {$rc2 != 0 } {
+			regsub $StringValTab $var_name "" var_name
+			set rephrase [format "%s\[^%s\]\*\$" $StringValTab $StringValTab]
+			regexp $rephrase $Line var_value
+			regsub $StringValTab $var_value "" var_value
+			if {($var_name != "") && ($var_value != "")} {
+				set $var_name [set var_value]
+			}
+		}
+	}
+	close $rcfile
+}
+
+set NumDrivesStart [set NumDrives]
+
+
+;# draw the GUI
+frame .main -width 85 -height 23
+
+frame .main.lx -width 37 -height 15
+entry .main.lx.location -width 28 -relief sunken -bd 2 -textvariable lx_location
+listbox .main.lx.files -relief raised -width 27 -height 15 -borderwidth 2 -yscrollcommand ".main.lx.yscroll set" 
+;# Note: LX scrollbar removed to make way for Drive Buttons
+;#-xscrollcommand ".main.lx.xscroll set" 
+;#scrollbar .main.lx.xscroll -orient horizontal -command ".main.lx.files xview"
+scrollbar .main.lx.yscroll -command ".main.lx.files yview"
+label .main.lx.status -relief sunken -width 28 -text ""
+pack .main.lx.status -side bottom -fill x -pady 1m
+;#pack .main.lx.xscroll -side bottom -fill x
+
+frame .main.lx.drive -width 28 -relief flat 
+for {set loop 1} {$loop <= 5} {incr loop} {
+	button .main.lx.drive.$loop -text $"Drive$loop" -bg lightgrey
+	if {$loop <= $NumDrives} {
+		pack .main.lx.drive.$loop -side left ;#-fill x -expand 1
+	} ;# else {
+	;# See redrawDriveButtons for more info about this:
+	;#	.main.lx.drive.$loop configure -bg lightgrey -state disabled -relief flat -text "  "
+	;#	pack .main.lx.drive.$loop -side left -fill x 
+	;#}
+}
+pack .main.lx.drive -side top -fill x
+pack .main.lx.location -side top -fill x
+pack .main.lx.files .main.lx.yscroll -side left -fill y
+
+frame .main.panel -width 11 -height 15
+label .main.panel.empty_label -width 3 -text ""
+button .main.panel.exit_button -text "        Exit        "
+catch {.main.panel.exit_button configure -foreground darkblue}
+label .main.panel.empty_label2 -width 3 -text ""
+button .main.panel.info_button -text "    Info    "
+button .main.panel.mark_button -text "    (un)Mark    "
+button .main.panel.mark_all_button -text "       Mark All       "
+label .main.panel.empty_label3 -width 3 -text ""
+button .main.panel.copy_button -text "    Copy    "
+label .main.panel.empty_label4 -width 3 -text ""
+button .main.panel.delete_button -text "   Delete   "
+catch {.main.panel.delete_button configure -foreground red -activeBackground red -activeForeground white}
+label .main.panel.empty_label5 -width 3 -text ""
+button .main.panel.mkdir_button -text "   New Dir   "
+pack .main.panel.exit_button -fill x -side top -anchor center
+pack .main.panel.empty_label -fill x -side top -anchor center
+pack .main.panel.info_button .main.panel.mark_button -fill x -side  top -anchor center
+pack .main.panel.mark_all_button .main.panel.empty_label2 -fill x -side top -anchor center
+pack .main.panel.copy_button -fill x -side  top -anchor center
+pack .main.panel.empty_label4 -fill x -side top -anchor center
+pack .main.panel.delete_button -fill x -side  top -anchor center
+pack .main.panel.empty_label3 -fill x -side top -anchor center
+pack .main.panel.mkdir_button -fill x -side top -anchor center
+;#pack .main.panel -fill y
+
+frame .main.unix -width 37 -height 15
+entry .main.unix.location -width 28 -relief sunken -bd 2 -textvariable unix_location
+listbox .main.unix.files -relief raised -width 33 -height 15 -borderwidth 2 -yscrollcommand ".main.unix.yscroll set" -xscrollcommand ".main.unix.xscroll set" 
+scrollbar .main.unix.xscroll -orient horizontal -command ".main.unix.files xview"
+scrollbar .main.unix.yscroll -command ".main.unix.files yview"
+label .main.unix.status -relief sunken -width 28 -text ""
+pack .main.unix.status -side bottom -fill x -pady 1m -expand 1
+pack .main.unix.location -side top -fill x -expand 1
+pack .main.unix.xscroll -side bottom -fill x -expand 1
+pack .main.unix.yscroll -side right -fill y ;#-expand 1
+pack .main.unix.files -side left -fill both -expand 1
+
+frame .mbar -width 85 -height 4
+frame .status -width 85 -height 4
+
+;# File Menu
+menubutton .mbar.file -text File -menu .mbar.file.menu
+menu .mbar.file.menu
+.mbar.file.menu add command -label "Exit" -command "exit"
+pack .mbar.file -side left
+
+;# Help menu
+menubutton .mbar.help -text Help -menu .mbar.help.menu
+menu .mbar.help.menu
+.mbar.help.menu add command -label "About" -command "showAboutInfo"
+.mbar.help.menu add command -label "Bugs..." -command "showBugsInfo"
+pack .mbar.help -side right
+
+
+;# Settings menu
+menubutton .mbar.settings -text Settings -menu .mbar.settings.menu
+menu .mbar.settings.menu
+
+;# Line Speed
+.mbar.settings.menu add cascade -label "Line speed" -menu .mbar.settings.menu.linespeed
+menu .mbar.settings.menu.linespeed
+set linespeeds {"1200" "2400" "4800" "9600" "19200" "38400" "57600" "115200"}
+foreach speed $linespeeds {
+	.mbar.settings.menu.linespeed add radiobutton -label $speed -variable LineSpeed -value $speed
+}
+
+;# Serial Port
+.mbar.settings.menu add cascade -label "Serial port" -menu .mbar.settings.menu.port
+menu .mbar.settings.menu.port
+.mbar.settings.menu.port add radiobutton -label "/dev/ttyS0 (COM 1)" -variable SerialPort -value "/dev/ttyS0"
+.mbar.settings.menu.port add radiobutton -label "/dev/ttyS1 (COM 2)" -variable SerialPort -value "/dev/ttyS1"
+.mbar.settings.menu.port add radiobutton -label "/dev/ttyS2 (COM 3)" -variable SerialPort -value "/dev/ttyS2"
+.mbar.settings.menu.port add radiobutton -label "/dev/ttyS3 (COM 4)" -variable SerialPort -value "/dev/ttyS3"
+.mbar.settings.menu.port add radiobutton -label "$AlternatePort" -variable SerialPort -value "UseAlternatePort"
+.mbar.settings.menu.port add separator
+.mbar.settings.menu.port add command -label "Set custom port name" -command "setCustomPort"
+catch {.mbar.settings.menu.port entryconfigure 7 -foreground darkblue}
+
+.mbar.settings.menu add separator
+
+;# LX options
+.mbar.settings.menu add cascade -label "LX options" -menu .mbar.settings.menu.lx
+menu .mbar.settings.menu.lx
+
+;# LX sort alphabetically?
+.mbar.settings.menu.lx add checkbutton -label "Sort files alphabetically" -variable LXSortAlpha -onvalue "1" -offvalue "0"
+
+;# LX copy overwrite
+.mbar.settings.menu.lx add checkbutton -label "Delete LX files before copying" -variable OverwriteLX -onvalue "1" -offvalue "0"
+
+;# UNIX menu
+.mbar.settings.menu add cascade -label "UNIX options" -menu .mbar.settings.menu.unix
+menu .mbar.settings.menu.unix
+
+;# UNIX hidden files
+.mbar.settings.menu.unix add checkbutton -label "Show \"dot files\" by default" -variable UNIXShowHidden -onvalue "1" -offvalue "0"
+
+;# UNIX sort order
+.mbar.settings.menu.unix add checkbutton -label "Show directories first" -variable UNIXDirsFirst -onvalue "1" -offvalue "0"
+
+;# UNIX copy overwrite
+.mbar.settings.menu.unix add checkbutton -label "Overwrite existing files" -variable Overwrite -onvalue "1" -offvalue "0"
+
+;# UNIX -f switch for rm
+.mbar.settings.menu.unix add checkbutton -label "Delete uses \"-f\" option" -variable ForceRM -onvalue "1" -offvalue "0"
+
+
+;# LX Start directory
+.mbar.settings.menu add cascade -label "Initial LX directory" -menu .mbar.settings.menu.lxstart
+menu .mbar.settings.menu.lxstart
+.mbar.settings.menu.lxstart add command -label "Use current directory" -command "setLXStartDir"
+.mbar.settings.menu.lxstart add command -label "Do not display LX directory on startup" -command "emptyLXStartDir"
+
+;# UNIX Start directory
+.mbar.settings.menu add cascade -label "Initial UNIX directory" -menu .mbar.settings.menu.unixstart
+menu .mbar.settings.menu.unixstart
+.mbar.settings.menu.unixstart add command -label "Use current directory" -command "setUNIXStartDir"
+.mbar.settings.menu.unixstart add command -label "Do not display UNIX directory on startup" -command "emptyUNIXStartDir"
+
+
+.mbar.settings.menu add separator
+
+;# Drive buttons
+.mbar.settings.menu add cascade -label "Drive buttons" -menu .mbar.settings.menu.drives
+menu .mbar.settings.menu.drives
+
+;# Redraw drive buttons
+.mbar.settings.menu.drives add command -label "Redraw buttons" -command "redrawDriveButtons"
+.mbar.settings.menu.drives add separator
+catch {.mbar.settings.menu.drives entryconfigure 1 -foreground darkblue}
+
+;# Number of buttons to show
+.mbar.settings.menu.drives add cascade -label "Number to show" -menu .mbar.settings.menu.drives.num
+menu .mbar.settings.menu.drives.num
+for {set bloop 1} {$bloop < 6} {incr bloop} {
+	.mbar.settings.menu.drives.num add radiobutton -label $bloop -variable NumDrives -value $bloop
+}
+.mbar.settings.menu.drives add separator
+
+;# Draw drive pulldowns
+set ordinals {"NULL" "First" "Second" "Third" "Fourth" "Fifth"}
+for {set bloop 1} {$bloop < 6} {incr bloop} {
+	.mbar.settings.menu.drives add cascade -label [lindex $ordinals $bloop] -menu .mbar.settings.menu.drives.$bloop
+	menu .mbar.settings.menu.drives.$bloop
+	foreach letter {"A:/" "B:/" "C:/" "D:/" "E:/" "F:/" "G:/"} {
+		.mbar.settings.menu.drives.$bloop add radiobutton -label $letter -variable Drive$bloop -value $letter
+	}
+}
+
+;# Keyboard shortcuts
+.mbar.settings.menu add cascade -label "Keyboard bindings" -menu .mbar.settings.menu.keybindings
+menu .mbar.settings.menu.keybindings
+
+;# F2
+.mbar.settings.menu.keybindings add checkbutton -label "F2 performs copy" -variable FilerKeyF2 -onvalue "1" -offvalue "0"
+
+;# Delete
+.mbar.settings.menu.keybindings add checkbutton -label "Del requests deletion" -variable FilerKeyDel -onvalue "1" -offvalue "0"
+
+;# "i" for information
+.mbar.settings.menu.keybindings add checkbutton -label "'i' requests information" -variable InfoKeyI -onvalue "1" -offvalue "0"
+
+;# Confirm file deletions
+.mbar.settings.menu add checkbutton -label "Confirm file deletions" -variable ConfirmDeletions -onvalue "1" -offvalue "0"
+
+;# File double-click
+.mbar.settings.menu add cascade -label "File double-click action" -menu .mbar.settings.menu.2fileclick
+menu .mbar.settings.menu.2fileclick
+.mbar.settings.menu.2fileclick add radiobutton -label "Mark/unmark item" -variable 2FileMark -value "1"
+.mbar.settings.menu.2fileclick add radiobutton -label "Show information" -variable 2FileMark -value "0"
+
+;# Save settings
+.mbar.settings.menu add separator
+.mbar.settings.menu add command -label "Save settings" -command "saveSettings"
+
+;# Change the color of the text on the ""Save settings" menu option
+catch {.mbar.settings.menu entryconfigure 13 -foreground red}
+catch {.mbar.settings.menu entryconfigure 14 -foreground darkblue}
+
+;# Pack the settings menu
+pack .mbar.settings -side left
+
+label .status.label -text "Welcome to LXFileman" -relief sunken
+pack .status.label -side left -fill x -expand 1
+
+pack .main.lx -side left -fill y ;#-expand 1
+pack .main.panel -side left -fill y ;#-expand 1
+pack .main.unix -side right -fill both -expand 1
+
+pack .mbar -side top -fill x -expand 1
+pack .main  -side top -fill both -expand 1
+pack .status -side bottom -fill x -expand 1
+
+
+;#pack .main .main.lx .main.panel .main.unix -side left
+pack .mbar .main .status -side top -fill x
+;#pack .main.unix .main.panel .main.lx -side left
+
+;# Procs
+
+proc SetLXTOOLSvars {} {
+  	global LineSpeed AlternatePort SerialPort env isLinux CmdSetserial
+	if {$SerialPort == "UseAlternatePort"} {
+		DebugInfo 8 puts stderr "Setting port to $AlternatePort"
+		set env(LXTOOLS_LINE) $AlternatePort
+		set portName $AlternatePort
+	} else {	
+		DebugInfo 8 puts stderr "Setting port to $SerialPort"
+		set env(LXTOOLS_LINE) $SerialPort
+		set portName $SerialPort
+	}
+	DebugInfo 8 puts stderr "Setting line speed to $LineSpeed"
+	set env(LXTOOLS_BAUD) $LineSpeed
+	if { $isLinux == 1 } {
+		if { $LineSpeed > 38400 } {
+			DebugInfo 8 puts stderr "Tweaking Linux serial port settings"
+			set env(LXTOOLS_BAUD) 38400
+			if { $LineSpeed == 57600 } {
+				set rc [catch { exec $CmdSetserial $portName spd_hi }]
+			} else {
+				set rc [catch { exec $CmdSetserial $portName spd_vhi }]
+			}
+		} else {
+			set rc [catch { exec $CmdSetserial $portName spd_normal }]
+		}
+	}
+}
+
+proc redrawDriveButtons {} {
+ 	for {set loop 1} {$loop <= 5} {incr loop} {
+		upvar #0 "Drive$loop" this_label
+		.main.lx.drive.$loop configure -text $this_label -bg lightgrey -fg black -state normal -relief raised ;#-borderWidth 2
+	}
+	upvar #0 "LXPwd" LXPwd
+	if {[regexp "^\[a-zA-Z\]" $LXPwd] > 0} {
+		indicateDrive $LXPwd
+	}
+	upvar "NumDrives" NumDrives
+	upvar "NumDrivesStart" NumDrivesStart
+	;# we can pack buttons and *almost* make them invisible so that you don't
+	;# need to restart to change the number of buttons but the color is a bit off,
+	;# and how often does anybody change their button configs ? 
+	;#for {set loop [expr $NumDrives + 1]} {$loop <= 5} {incr loop} {
+	;#	.main.lx.drive.$loop configure -bg lightgrey -fg lightgrey -text "     " -state disabled -relief flat  
+	;#	;#pack .main.lx.drive -side top -fill x 
+	;#}
+	if {$NumDrivesStart != $NumDrives} {
+	 	set emptyvar ""
+		set messageText [format "You will need to save settings and restart LXFileman to have \
+		the number of buttons changed."]
+	       	set rcMsg [dialogText .d {Changing number of drive buttons} $messageText info blue 0 emptyvar 80 120 OK]
+	}	
+	return
+}
+
+proc indicateDrive {path} {
+ 	set pathlen [string length $path]
+	if {$pathlen < 1} { return }
+	set letter [string range $path 0 0]
+	set letter [string toupper $letter]
+	foreach drive {1 2 3 4 5} {
+		upvar #0 "Drive$drive" tmp_this_label
+		set this_label [set tmp_this_label] 	;# Don't change the real thing! 
+		set this_label [string range $this_label 0 0]
+		;#puts stderr "\"$drive\": comparing \"$letter\" to \"$this_label\""
+		if {$letter == $this_label} {
+			.main.lx.drive.$drive configure -bg white
+		} else {
+			.main.lx.drive.$drive configure -bg lightgrey
+		}
+	}
+	return
+}
+
+proc showAboutInfo {} {
+ 	global Version
+	set emptyvar ""
+	set messageText [format "This is LXFileman version $Version.\n\nLXFileman is a simple Tcl/Tk \
+	front end for Andreas Garzotto's LXTOOLS command-line HP 200LX palmtop file manipulation utilities. \
+	I hope you find it useful. \n\nGNU Copyright 1997-2001 Peter Watkins, peterw\@usa.net\
+	\nWhy don't you send me an email to let me know how you like it?"]
+	set rcMsg [dialogText .d {About LXFileman} $messageText info blue 0 emptyvar 150 40 OK]
+	return
+}
+
+proc showBugsInfo {} {
+ 	global Version
+	set emptyvar ""
+	set messageText [format "This is a BETA version of LXFileman.\n\
+	\nI've tried to test different scenarios, and done fair bit of bug-chasing\
+	 but there's certainly more trouble to be found. Please email me at\
+	 peterw@usa.net with as detailed info as you think necessary. And if \
+	 you feel like fixing a bug and sending me a \"diff\", that's great.\n\
+	\nKnown issues are listed in the TODO file or the main Web page at \
+	 http://www.tux.org/~peterw/"]
+	set rcMsg [dialogText .d {When you see bugs} $messageText "" "" 0 emptyvar 150 30 OK]
+	return
+}
+
+proc changeLXDrive {driveletter} {
+	SetLXTOOLSvars
+	global CmdLXDir
+	global lx_location
+	set LX_Test [listLXDir $driveletter ]
+	if {$LX_Test >= 0} {set lx_location [set driveletter]}
+	return
+}
+
+proc setCustomPort {} {
+ 	global AlternatePort
+	set AltPort [set AlternatePort]
+	set messageText [format "Please choose an alternate serial port name"]
+	set rcMsg [dialogText .d {Set custom port name} $messageText questhead darkgreen 1 AltPort 80 120 OK Cancel]
+	if { $rcMsg == 0 } { set AlternatePort [set AltPort] }
+	.mbar.settings.menu.port entryconfigure 5 -label "$AlternatePort"
+	return
+}
+
+proc dialogText {w title text bitmap bm_color default textvar xoff yoff args} {
+	;# This function lifted from Ousterhout's _Tcl and the Tk Toolkit_
+	;# (but I added the textvar argument so it can do more than just
+	;# let you push buttons ;-) also bitmap colors, geometry offsets..
+	global button inputText2 bindings
+	unsetKeyBindings
+	upvar $textvar inputText
+	set inputText2 [set inputText]
+
+	toplevel $w -class Dialog
+	wm title $w $title
+	wm iconname $w Dialog
+	set ourPos [wm geometry .]
+	regexp "(\[\\+\-\]\[0-9\]*)(\[\\+\-\]\[0-9\]*)\$" $ourPos  pos Xpos Ypos
+	regsub "^\\+" $Ypos "" Ypos
+	regsub "^\\+" $Xpos "" Xpos
+	set newX [expr ($Xpos + $xoff)]
+	if {$newX >= 0} {regsub "^" $newX "+" newX}
+	set newY [expr ($Ypos + $yoff)]
+	if {$newY >= 0} {regsub "^" $newY "+" newY}
+	wm geometry $w "$newX$newY"
+	frame $w.top -relief raised -bd 1
+	pack $w.top -side top -fill both
+	frame $w.bot -relief raised -bd 1
+	pack $w.bot -side bottom -fill both
+	
+	if {$inputText != ""} {
+		if {$inputText == " "} {set inputText2 ""}
+		frame $w.middle -relief raised -bd 1
+		pack $w.middle -side bottom -fill both
+		entry $w.middle.text -width 15 -bd 2 -textvariable inputText2
+		pack $w.middle.text -side left -expand 1 -fill x -padx 2m -pady 2m
+	}
+
+	message $w.top.msg -width 3i -text $text 
+	pack $w.top.msg -side right -expand 1 -fill both -padx 3m -pady 3m
+	if {$bitmap != ""} {
+		label $w.top.bitmap -bitmap $bitmap
+		pack $w.top.bitmap -side left -padx 3m -pady 3m
+		catch {$w.top.bitmap configure -fg $bm_color}
+	}
+
+	set i 0
+	foreach but $args {
+		button $w.bot.button$i -text $but -command "set button $i"
+		if {$i == $default} {
+			frame $w.bot.default -relief sunken -bd 1
+			raise $w.bot.button$i
+			pack $w.bot.default -side left -expand 1 -padx 3m -pady 2m
+			pack $w.bot.button$i -in $w.bot.default -side left -padx 2m -pady 2m -ipadx 2m -ipady 1m
+		} else {
+			pack $w.bot.button$i -side left -expand 1 -padx 3m -pady 3m -ipadx 2m -ipady 2m
+		}
+		incr i
+	}
+
+	if {$default >= 0} {
+		bind $w <Return> "$w.bot.button$default flash; set button $default"
+	}
+	set oldFocus [focus]
+
+	;# John didn't add this, but with the textvar entry it's needed:
+	tkwait visibility $w
+	
+	grab set $w
+	focus $w
+	if { $inputText != "" } { focus $w.middle.text }
+
+	tkwait variable button
+	set inputText [set inputText2]
+	destroy $w
+	focus $oldFocus
+	setKeyBindings
+	return $button
+}
+
+proc unsetKeyBindings {} {
+	global bindings
+	;#puts stderr "disabling Filer key bindings"
+	DebugInfo 5 puts stderr "disabling bindings"
+	bind all <KeyPress-i> {}
+	;#bind all <KeyRelease-I> {}
+	bind all <KeyPress-F2> {}
+	bind all <KeyRelease-F2> {}
+	bind all <KeyPress-Delete> {}
+	bind all <KeyRelease-Delete> {}
+	set bindings "no"
+}
+
+proc setKeyBindings {} {
+	global bindings
+	;#puts stderr "enabling Filer key bindings"
+	set bindings "on"
+	bind all <KeyPress-F2> {f2Press}
+	bind all <KeyRelease-F2> {f2Release}
+	bind .main.unix.location <KeyPress-Delete> break
+	bind .main.unix.location <KeyRelease-Delete> {
+		niceDelete .main.unix.location
+		break
+	}
+	bind .main.lx.location <KeyPress-Delete> break
+	bind .main.lx.location <KeyRelease-Delete> {
+		niceDelete .main.lx.location
+		break
+	}
+	bind all <KeyPress-Delete> {delPress}
+	bind all <KeyRelease-Delete> {delRelease}
+	bind .main.unix.files <KeyPress> {DebugInfo 5 puts stderr "i pressed"}
+	DebugInfo 5 puts stderr "binding i keys"
+	bind all <KeyPress-i> {
+		global InfoKeyI
+		if { $InfoKeyI == "1" } {getInfo}
+	}
+	bind .main.unix.location <KeyPress-i> {
+		niceKeyI .main.unix.location
+		break
+	}
+	bind .main.lx.location <KeyPress-i> {
+		niceKeyI .main.lx.location
+		break
+	}
+}
+
+proc niceDelete {widget} {
+	set thisKeyPos [$widget index insert]
+	set rc [catch {set thisSelFirst [$widget index sel.first]} ]
+	catch {set thisSelLast [$widget index sel.last]}
+	if {$rc == 0 } {
+		$widget delete $thisSelFirst $thisSelLast
+	} else {
+		$widget delete $thisKeyPos
+	}
+} 
+
+proc niceKeyI {widget} {
+	set thisKeyPos [$widget index insert]
+	$widget insert insert i
+} 
+
+
+proc setLXStartDir {} {
+	global LXPwd
+	global LXStartDir
+	set LXStartDir [set LXPwd]
+	.status.label configure -text "Be sure to save the settings"
+}
+
+proc emptyLXStartDir {} {
+	global LXStartDir
+	set LXStartDir " "
+	.status.label configure -text "Be sure to save the settings"
+}
+
+proc setUNIXStartDir {} {
+	global UNIXPwdBase
+	global UNIXStartDir 
+	set UNIXStartDir [set UNIXPwdBase]
+	.status.label configure -text "Be sure to save the settings"
+}
+
+proc emptyUNIXStartDir {} {
+	global UNIXStartDir 
+	set UNIXStartDir " "
+	.status.label configure -text "Be sure to save the settings"
+}
+
+
+proc saveSettings {} {
+ 	global LXFilemanRCName
+	global LXFilemanRCPerms 
+	global StringValTab 
+	set rc [catch {set rcfile [open $LXFilemanRCName w]} ]
+	if {$rc != 0} {
+		.status.label configure -text "Unable to write to \"$LXFilemanRCName\""
+		return 
+	}
+	puts $rcfile "# LXFileman preference file, note the format is *very* rigid:"
+	puts $rcfile "# <startOfLine>UserOptionName<singleTab>UserOptionValue<endOfLine>"
+	
+	foreach pref {2FileMark LineSpeed SerialPort AlternatePort UNIXShowHidden LXStartDir UNIXStartDir Overwrite \
+	ForceRM UNIXDirsFirst OverwriteLX LXSortAlpha ListFont ListBGColor Drive1 Drive2 Drive3 Drive4 Drive5 \
+	NumDrives FilerKeyF2 FilerKeyDel ConfirmDeletions InfoKeyI} {
+		upvar #0 $pref this_pref
+		set outmsg [format "%s%s%s" $pref $StringValTab $this_pref]
+		puts $rcfile "$outmsg"
+	}
+
+	;# Not mentioned in the pull-downs, but we save the geometry info
+ 	set main_geometry [wm geometry .]
+	set outmsg [format "%s%s%s" "Geometry" $StringValTab $main_geometry]
+	puts $rcfile "$outmsg"
+
+	close $rcfile
+	set errmsg ""
+	catch {exec "chmod" $LXFilemanRCPerms $LXFilemanRCName} errmsg
+	;#puts stderr "\"$errmsg\""
+	.status.label configure -text "Settings recorded successfully"
+}
+
+proc isLegalDOSName { testname } {
+	set testname [string toupper $testname]
+	set testlen [string length $testname]
+	set legal [set testname]
+	regsub -all "\[A-Z\]" $legal "" legal
+	regsub -all "\[0-9\]" $legal "" legal
+	regsub -all "\[\\-\\_\]" $legal "" legal 
+	regsub -all "\\-" $legal "" legal
+	regsub "\\." $legal "" legal
+	if {$legal != ""} {
+		;# Note, this also catches files with > 1 "." char
+		;#puts stderr "\"$testname\" has an illegal character (\"$legal\")"
+		return -1
+	}
+	set suf_pos [string last "." $testname]
+	set suf_len [expr ($testlen - $suf_pos)]
+	if {($suf_pos >= 0) && ($suf_len > 4)} {
+		;#puts stderr "\"$testname\" has a long extension"
+		return -2
+	}
+	if {( ($suf_pos > 8) || (($suf_pos < 0) && ($testlen > 8)) )} {
+		;#puts stderr "\"$testname\" has a long base name"
+		return -3
+	}
+	if {[regexp "^\\." $testname]} {
+		;#puts stderr "\"$testname\" starts with a dot"
+		return -4
+	}
+	if {$testlen > 12} {
+		;#puts stderr "\"$testname\" is too, too long"
+		return -5
+	}
+	return 0
+}
+
+proc extractLXParent {child} {
+ 	regsub "\/\$" $child "" child
+	regsub "\/\[^\/\]*\$" $child "/" child
+	return $child
+}
+
+proc getUNIXNameFromLSlaF {line} {
+	global FilenameLSFieldNum 
+	set chopline [set line]
+	regsub ".\$" $chopline "" chopline	;# trim line end
+	;# toss the first FilenameLSFieldNum fields (none of them should have spaces)
+	for {set loop 1} {$loop <= $FilenameLSFieldNum} {incr loop} {
+		while {[regexp "^ " $chopline] > 0} {
+			regsub "^ " $chopline "" chopline
+		}
+		set choplen [string length $chopline]
+		incr choplen -1
+		set sppos [string first " " $chopline]
+		set chopline [string range $chopline $sppos $choplen]
+		;#puts stderr "choplen at $loop is \"$chopline\""
+	}
+	regsub "^ " $chopline "" chopline
+	return $chopline
+}
+
+proc getUNIXFirstName {guess} {
+	set link_test [regexp "^.* -> " $guess pseudonym]
+	if {$link_test == 1} {
+		regexp " -> .*\$" $guess real_mccoy
+		regsub " -> \$" $pseudonym "" pseudonym
+		regsub "^ -> " $real_mccoy "" real_mccoy
+		set slash_test [regexp "\/\$" $real_mccoy]
+		if {$slash_test == 1} {
+			set pseudonym [format "$pseudonym/"]
+		}
+		;#puts stderr "\"$pseudonym\" points to \"$real_mccoy\""
+		return $pseudonym
+	} else {
+		return $guess
+	}
+}
+
+proc getUNIXBaseDir {fullpath} {
+ 	set len_fullpath [string length $fullpath]
+	set last_slash [string last "/" $fullpath]
+	if {(($last_slash == -1) || ($len_fullpath == 0))} {
+		return ""
+	}
+	set base_part [string range $fullpath 0 $last_slash]
+	return $base_part	
+}
+
+proc getUNIXLastPart {fullpath} {
+ 	set len_fullpath [string length $fullpath]
+	set last_slash [string last "/" $fullpath]
+	if {($last_slash == -1) || ($len_fullpath == 0)} {
+		return $fullpath
+	}
+	incr len_fullpath -1
+	incr last_slash 1
+	set last_part [string range $fullpath $last_slash $len_fullpath]
+	return $last_part	
+}
+
+proc insertCommas {raw_number} {
+	set work_num [set raw_number]
+	set clean_num ""
+	set comma ""
+ 	while {[string length $work_num] > 3} {
+		regexp "...\$" $work_num new_end
+		regsub "...\$" $work_num "" work_num
+		set clean_num [format "%s$comma$clean_num" $new_end]
+		set comma ","
+	}
+	if {$comma == "," } {
+		set clean_num [format "$work_num$comma$clean_num"]
+	} else {
+		set clean_num [set work_num]
+	}
+	return $clean_num
+}
+
+proc getLXDirInfo {dir arrname lxnum lxline gotlxlines} {
+	global CmdLXDir 
+	upvar $arrname LXTempArray
+	upvar $lxnum LX_num
+	upvar $lxline LXLine
+	upvar $gotlxlines GotLXLines
+
+	global LXPwd lx_location
+
+	global RELastLXLine 
+	global REFirstLXLine
+	global StringValTab 
+	global REUNIXLineEnd 
+
+	set TempOut ""
+
+	catch { set TempOut [eval exec $CmdLXDir $dir] } errorCode
+
+	set ConnTest [regsub "Connection broken" $TempOut "" fooVar]
+	if {$ConnTest == 1} {
+		;#puts stderr "Broken Connection"
+		.status.label configure -text "Broken Connection"
+		return -2
+	}
+	set ConnTest [regsub " " $TempOut "" fooVar]
+	if {$ConnTest != 1} {
+		;#puts stderr "No data for \"$dir\" -- cable disconnected?"
+		.status.label configure -text "No data for \"$dir\" -- cable disconnected?"
+		return -4
+	}
+
+	set LX_num 0
+ 	set LXLine 0
+	set GotLXLines 1
+	while {$GotLXLines == 1} {
+		set rc [regexp $REFirstLXLine $TempOut LXTempArray($LXLine)]
+		regsub $REFirstLXLine $TempOut "" TempOut
+		if {$rc == 0} {
+ 			set LXTempArray($LXLine) [format "$TempOut$REUNIXLineEnd"]
+			set GotLXLines 0
+		}
+ 		;#puts stderr "$LXLine \"$LXTempArray($LXLine)\""
+ 		incr LXLine
+	}
+
+	if {$LXLine < 5 } {
+		;#puts stderr "No files found for \"$dir\"\n"
+		.status.label configure -text "No files found for \"$dir\""
+		set lx_location "$LXPwd"
+		return -3
+	}
+	
+	return $LXLine
+}
+
+proc listLXDir { dir } {
+	upvar #0 "CmdLXDir" CmdLXDir
+	upvar #0 "LXDisplayArray" LXOutArray
+	upvar #0 "LXDateStampArray" LXDateArray
+	upvar #0 "LXTimeStampArray" LXTimeArray
+	upvar #0 "LXFileSizeArray" LXSizeArray
+	upvar #0 "LXNumMarkedFiles" LXNumMarkedFiles
+	upvar #0 "LXMarkedFilesSizeTotal" LXMarkedFilesSizeTotal
+	upvar #0 "LXNumFilesShown" current_lx_count 
+	upvar #0 "lx_location" lx_location
+	upvar #0 "LXPwd" LXPwd
+	upvar #0 "SidePtr" SidePtr
+	 
+	global RELastLXLine
+	global REFirstLXLine
+	global StringValTab
+	global REUNIXLineEnd
+
+	set LXLine 0
+	;#puts "$CmdLXDir $dir"
+	set TempOut ""
+
+	.status.label configure -text [format "Checking \"$dir\""]
+	set rc [getLXDirInfo $dir LXTempArray LX_num LXLine GotLXLines]
+	if {$rc < 0} {return $rc}
+
+	set num_file_files 0
+	set size_files_total 0
+	for {set loop 4} {$loop < $LXLine} {incr loop} {
+		set this_len [string length $LXTempArray($loop)]
+		set this_last_pos [expr ($this_len - 1)]
+		set name [string range $LXTempArray($loop) 0 11]
+		regsub -all "^ " $name "" name
+		regsub -all " \$" $name "" name
+		set size [string range $LXTempArray($loop) 12 $this_last_pos]
+		regsub -all "^ " $size "" size
+		set size [lindex $size 0]
+		set size_arr($loop) [set size]
+		;#puts stderr "LX \"$name\" size is \"$size\""
+		set date_arr($loop) [lindex $LXTempArray($loop) 2]
+		set time_arr($loop) [lindex $LXTempArray($loop) 3]
+		if {$size != "<DIR>"} {
+			;#puts stderr "$name is a file of $size bytes"
+			set name [string tolower $name]
+			set disp_arr($loop) [format " %-12s  %10s" $name $size]
+			set type_arr($loop) "file"
+			incr num_file_files
+			set size_files_total [expr ($size_files_total + $size)]
+		} else {
+			;#puts "$name$StringValTab<DIR>"
+			set disp_arr($loop) [format " %-12s" $name ]
+			set type_arr($loop) "DIR"
+			set size_arr($loop) 0
+			;# is a directory"
+		}
+	} 
+
+	upvar #0 "LXSortAlpha" LXSortAlpha
+	if {$LXSortAlpha == 1} {
+		for {set loop 4} {$loop < $LXLine} {incr loop} {
+		 	set lowest "ZZZZZZZZZZZZZZ" ;# theoretically impossible
+			for {set loop2 4} {$loop2 < $LXLine} {incr loop2} {
+			 	if {($disp_arr($loop2) != "") && ([string compare $disp_arr($loop2) $lowest] < 0)} {
+					 set lowest [set disp_arr($loop2)]
+					 set low_num $loop2
+				}
+			} 
+			;#puts stderr "next alpha name is \"$disp_arr($low_num)\""
+			set LXOut2($loop) [set disp_arr($low_num)]
+			set LXDate2($loop) [set date_arr($low_num)]
+			set LXTime2($loop) [set time_arr($low_num)]
+			set LXSize2($loop) [set size_arr($low_num)]
+			set LXType2($loop) [set type_arr($low_num)]
+			set disp_arr($low_num) ""
+		}
+		for {set loop 4} {$loop < $LXLine} {incr loop} {
+			set disp_arr($loop) [set LXOut2($loop)]
+			set date_arr($loop) [set LXDate2($loop)]
+			set time_arr($loop) [set LXTime2($loop)]
+			set size_arr($loop) [set LXSize2($loop)]
+			set type_arr($loop) [set LXType2($loop)]
+		}
+	}
+	foreach ftype {DIR file} {
+		for {set loop 4} {$loop < $LXLine} {incr loop} {
+			if {$type_arr($loop) == $ftype} {
+				set LXOutArray($LX_num) [set disp_arr($loop)]
+				set LXDateArray($LX_num) [set date_arr($loop)]
+				set LXTimeArray($LX_num) [set time_arr($loop)]
+				set LXSizeArray($LX_num) [set size_arr($loop)]
+				incr LX_num
+			}
+		}
+	} 
+	if {$LX_num > 0} {
+		for {set loop 0} {$loop < $current_lx_count} {incr loop} {
+			.main.lx.files delete end
+		}
+		set hasdots_test [regexp "^.\\.\\." $LXOutArray(1)]
+		set hasslash_test [regexp "/" $dir]
+		set hastwoslashes_test [regexp "/.*/" $dir]
+		set endsinslash_test [regexp "/\$" $dir]
+		;#puts stderr "$LX_num dots $hasdots_test slash $hasslash_test 2slashes $hastwoslashes_test ends in / $endsinslash_test"
+		if {($LX_num < 2) || (($hasdots_test == 0) && ((($hasslash_test == 1) && ($endsinslash_test == 0)) || ($hastwoslashes_test == 1)))} {
+			;#puts stderr "Need dots"
+			set fixed_lx_count [expr (2 + $LX_num)]
+			for {set loop [expr ($LX_num - 1)]} {$loop >= 0} {incr loop -1} {
+				set new_loc [expr ($loop + 2)]
+				set LXOutArray($new_loc) [set LXOutArray($loop)]
+				set LXDateArray($new_loc) [set LXDateArray($loop)]
+ 				set LXTimeArray($new_loc) [set LXTimeArray($loop)]
+				set LXSizeArray($new_loc) [set LXSizeArray($loop)]
+			}		
+			set LXOutArray(0) [format " %-12s" "." ]
+			
+			;# Important! This phrase is used by the actOnMarkedPlusSelected proc
+			set LXDateArray(0) "Refresh this listing"
+			
+			set LXTimeArray(0) ""
+			set LXSizeArray(0) 0
+			set LXOutArray(1) [format " %-12s" ".." ]
+			set LXDateArray(1) "Show all files in this directory"
+			set LXTimeArray(1) ""
+			set LXSizeArray(1) 0
+	 		set LX_num [set fixed_lx_count]
+		}	 
+		set current_lx_count [set LX_num]
+		for {set loop 0} {$loop < $current_lx_count} {incr loop} {
+			.main.lx.files insert end $LXOutArray($loop)
+		}
+		set dir [string toupper $dir]
+		set lx_location [set dir]
+		set LXPwd [set dir]
+		set LXNumMarkedFiles 0
+		set LXMarkedFilesSizeTotal 0
+		set size_files_total [insertCommas $size_files_total]
+		.main.lx.status configure -text [format "$num_file_files%s$size_files_total%s" " files  " " bytes"]
+		}
+	set SidePtr ""
+	redrawButtons $SidePtr
+	indicateDrive $dir
+	return $LX_num
+}
+
+proc listUNIXdir { dir basedir } {
+	upvar #0 "UNIXShowHidden" showhidden
+	upvar #0 "UNIXDisplayArray" UNIXOutArray
+	;#upvar $date_arrayname UNIXDateArray
+	upvar #0 "UNIXFullInfoArray" UNIXPermsArray
+	upvar #0 "UNIXFileSizeArray" UNIXSizeArray
+	upvar #0 "UNIX_num_files" current_unix_count 
+	upvar #0 "unix_location" unix_location
+	upvar #0 "UNIXNumMarkedFiles" UNIXNumMarkedFiles 
+	upvar #0 "UNIXMarkedFilesSizeTotal" UNIXMarkedFilesSizeTotal
+	upvar #0 "UNIXPwd" UNIXPwd
+	upvar #0 "SidePtr" SidePtr
+	upvar #0 "UNIXPwdBase" UNIXPwdBase
+	upvar #0 "UNIXPwdPattern" UNIXPwdPattern
+	upvar #0 "FileSizeLSFieldNum" FileSizeLSFieldNum
+	;#upvar "UserOption" $UserOption
+	 
+	;#puts stderr "current UNIX count is $current_unix_count"
+
+	global RELastUNIXLine
+	global REFirstUNIXLine
+	global REUNIXLineEnd
+	global StringValTab
+
+	;#puts "$CmdLXDir $dir"
+	set TempOut ""
+	set pwd_val [pwd]
+	;#puts stderr "PWD is \"$pwd_val\""
+	set space_check [regexp " " $dir]
+	;#puts stderr "listUNIXdir about to ls on \"$dir\""
+	if {$space_check == 1} {
+		;#puts stderr "...and I will enclose \"$dir\" in quotes"
+	        set rc [catch { set TempOut [eval exec "ls -ladF \"$dir\""] } errorCode]
+		;#puts stderr "tried, rc is \"$rc\""
+	} else {
+		;# if no "/" in $dir, should use glob
+		set glob_val [set dir]
+		;#regsub "^\$" $glob_val "*" glob_val
+		if {($dir == "") && ($showhidden == 1)} {
+      			set rc [catch { set TempOut [eval exec ls -laF ] } errorCode]
+			;#puts stderr "tried, rc is \"$rc\""
+		} else {	
+			if {($showhidden == 0) && ($dir == "")} {
+				set glob_val "*"
+			}
+			;#puts stderr "glob_val is \"$glob_val\""
+			set glob_list [glob -nocomplain $glob_val]
+			if {[regexp "^\[^\\.\]" $glob_val]} {
+				set glob_list [concat "." ".." $glob_list]
+			}
+			set rc [catch { set TempOut [eval exec ls -ladF $glob_list ] } errorCode]
+			;#puts stderr "tried, rc is \"$rc\""
+		}
+	}
+	if {$rc != 0} {
+ 		;#puts stderr "General error lising \"$dir\""
+		.status.label configure -text "General error listing \"$dir\""
+		return -5
+	}
+	;#puts stderr "\"$TempOut\""
+	set ConnTest [regsub "\[0-9\]" $TempOut "" fooVar]
+	if {$ConnTest == 0} {
+		;#puts stderr "No data for \"$dir\""
+		.status.label configure -text "No data for \"$dir\""
+		return -2
+	}
+	set ArrStart 0
+	if {[regexp "^total" $TempOut]} {
+		regsub $REFirstUNIXLine $TempOut "" TempOut
+		set ArrStart 0
+	}
+
+	set UNIXLine 0
+	set GotUNIXLines 1
+	while {$GotUNIXLines == 1} {
+		set rc [regexp $REFirstUNIXLine $TempOut UNIXTempArray($UNIXLine)]
+		regsub $REFirstUNIXLine $TempOut "" TempOut
+		if {$rc == 0} {
+ 			set UNIXTempArray($UNIXLine) [format "$TempOut$REUNIXLineEnd"]
+			set GotUNIXLines 0
+		}
+ 		;#puts stderr "$UNIXLine \"$UNIXTempArray($UNIXLine)\""
+ 		incr UNIXLine
+	}
+
+	;#puts stderr "array 0 is \"$UNIXTempArray(0)\""
+
+	if { ($UNIXLine <= 1) } {
+		;# UNIX (Linux), first line of ls -laF is "total N", so we need > 1 line
+		;#puts stderr "No files found for \"$dir\"\n"
+		.status.label configure -text "No files found for \"$dir\"\n"
+		return -3
+	}
+
+	set UNIX_num 0
+	set num_file_files 0
+	set size_files_total 0
+	set loop_end [expr ($UNIXLine - $ArrStart)]
+	for {set loop 0} {$loop < $UNIXLine} {incr loop} {
+		;#set name [lindex $UNIXTempArray($loop) 8]
+		set name [getUNIXNameFromLSlaF $UNIXTempArray($loop)]
+		;#puts stderr "\"$name\""
+		regsub $REUNIXLineEnd $name "" name
+		regsub -all " \$" $name "" name
+		regsub "\[\*\/\@\]\$" $name "" name
+		;#puts stderr "\"$name\""
+		set perms_arr($loop) [set UNIXTempArray($loop)]
+		regsub $REUNIXLineEnd $perms_arr($loop) "" perms_arr($loop)
+		;# Note: Unix allows { and } in file/dir names, but that
+		;# tends to mess up lindex
+		regsub -all {\{} $UNIXTempArray($loop) {\\\{} UNIXTempArray($loop)
+		regsub -all {\}} $UNIXTempArray($loop) {\\\}} UNIXTempArray($loop)
+		DebugInfo 8 puts "UNIXTempArray($loop) is \"$UNIXTempArray($loop)\""
+		set size [lindex $UNIXTempArray($loop) $FileSizeLSFieldNum]
+		set size_arr($loop) [set size]
+		;#puts stderr "listUNIXdir file \"$name\" size is \"$size\""
+		;#puts stderr "$perms_arr($loop)"
+		set line_len [string length $UNIXTempArray($loop)]
+		incr line_len -2
+		set last_char [string range $UNIXTempArray($loop) $line_len $line_len]
+		if {$last_char == "/"} {
+			set type_ind [set last_char]
+		} else {
+			set type_ind "*"
+		}
+		;#puts stderr "\"$name\" indicator is $type_ind"
+		if {$type_ind == "/"} {
+			set new_name [concat $name "/"]
+			regsub " \/\$" $new_name "/" new_name
+			;#puts stderr "\"$new_name\""
+			set disp_arr($loop) [format " %s" $new_name]
+			set size_arr($loop) 0
+			set type_arr($loop) "DIR"
+		} else {
+			set disp_arr($loop) [format " %s" $name]
+			set type_arr($loop) "file"
+			incr num_file_files
+			set size_files_total [expr ($size_files_total + $size)]
+		}
+	} 
+
+	upvar #0 "UNIXDirsFirst" DirsFirst
+	if {$DirsFirst == "1"} {
+ 		foreach ftype {DIR file} {
+			for {set loop [set ArrStart]} {$loop < $UNIXLine} {incr loop} {
+				if {$type_arr($loop) == $ftype} {
+					set UNIXOutArray($UNIX_num) [set disp_arr($loop)]
+					set UNIXSizeArray($UNIX_num) [set size_arr($loop)]
+   					set UNIXPermsArray($UNIX_num) [set perms_arr($loop)]
+					incr UNIX_num
+				}
+	     		}
+     		}
+	} else {
+		for {set loop [set ArrStart]} {$loop < $UNIXLine} {incr loop} {
+			set UNIXOutArray($UNIX_num) [set disp_arr($loop)]
+			set UNIXSizeArray($UNIX_num) [set size_arr($loop)]
+			set UNIXPermsArray($UNIX_num) [set perms_arr($loop)]
+			incr UNIX_num
+     		}
+	} 
+
+	if {$UNIX_num > 0} {
+		;#puts stderr "About to clean out old list, had $current_unix_count, now $UNIX_num"
+		for {set loop 0} {$loop < $current_unix_count} {incr loop} {
+			.main.unix.files delete end
+		}
+ 		set unix_location [format "$basedir$dir"]
+		regsub "^//\$" $unix_location "/" unix_location
+		set hasdots_test [regexp "^.\\.\\." $UNIXOutArray(1)]
+		set hasslash_test [regexp "/" $unix_location]
+		set hastwoslashes_test [regexp "/.*/" $unix_location]
+		set endsinslash_test [regexp "/\$" $unix_location]
+		;#puts stderr "hasDots $hasdots_test hasSlash $hasslash_test has2slashes $hastwoslashes_test endsInSlash $endsinslash_test"
+
+		if {($UNIX_num <2) ||(($hasdots_test == 0) && ((($hasslash_test == 1) && ($endsinslash_test == 0)) || ($hastwoslashes_test == 1)))} {
+			;#puts stderr "Need dots"
+			;#puts stderr "UNIX_num is \"$UNIX_num\""
+			set fixed_unix_count [expr (2 + $UNIX_num)]
+			for {set loop [expr ($UNIX_num -1)]} {$loop >= 0} {incr loop -1} {
+				set new_loc [expr ($loop + 2)]
+				set UNIXOutArray($new_loc) [set UNIXOutArray($loop)]
+				set UNIXPermsArray($new_loc) [set UNIXPermsArray($loop)]
+				set UNIXSizeArray($new_loc) [set UNIXSizeArray($loop)]
+			}		
+			set UNIXOutArray(0) [format " %-12s" "./" ]
+			;#set UNIXDateArray(0) ""
+			set UNIXPermsArray(0) "Refresh this listing"
+			set UNIXSizeArray(0) 0
+			set UNIXOutArray(1) [format " %-12s" "../" ]
+			;#set UNIXDateArray(1) ""
+			set UNIXSizeArray(1) 0
+			set UNIXPermsArray(1) "Show all files in this directory"
+	 		set UNIX_num [set fixed_unix_count]
+		}	 
+		set current_unix_count [set UNIX_num]
+		;#puts stderr "About to re-fill UNIX listbox"
+		for {set loop 0} {$loop < $current_unix_count} {incr loop} {
+			.main.unix.files insert end $UNIXOutArray($loop)
+			;#.main.unix.files insert end $LXOutArray($loop)
+		}
+		;#set dir [string toupper $dir]
+		;#set unix_location [set dir]
+		;#set UNIXPwd [set dir]
+		;#puts stderr "end of listUNIXdir, unix_location set to \"$unix_location\""
+		set UNIXPwd [set unix_location]
+		set UNIXNumMarkedFiles 0
+		set UNIXMarkedFilesSizeTotal 0
+		;#puts stderr "in listUNIXdir, base is \"$basedir\", dir is \"$dir\""
+		set UNIXPwdBase [set basedir]
+		set UNIXPwdPattern [set dir]
+		set size_files_total [insertCommas $size_files_total]
+		.main.unix.status configure -text [format "$num_file_files%s$size_files_total%s" " files  " " bytes"]
+	}
+	set SidePtr ""
+	redrawButtons $SidePtr
+	return $UNIX_num
+}
+
+proc redrawButtons {ptr} {
+	if {$ptr == "UNIX"} {
+		set left_src_indicator "   "
+		set right_src_indicator " ->"
+		set left_dest_indicator "<- "
+		set right_dest_indicator "   "
+	} elseif {$ptr == "LX"} {
+		set left_src_indicator "<- "
+		set right_src_indicator "   "
+		set left_dest_indicator "   "
+		set right_dest_indicator " ->"
+	} else {
+		set left_src_indicator "   "
+		set right_src_indicator "   "
+		set left_dest_indicator "   "
+		set right_dest_indicator "   "
+	}
+	.main.panel.info_button configure -text [format "$left_src_indicator%s$right_src_indicator" "Info"]
+	.main.panel.mark_button configure -text [format "$left_src_indicator%s$right_src_indicator" "(un)Mark"]
+	.main.panel.mark_all_button configure -text [format "$left_src_indicator%s$right_src_indicator" "Mark All"]
+	.main.panel.copy_button configure -text [format "$left_dest_indicator%s$right_dest_indicator" "Copy"]
+	.main.panel.mkdir_button configure -text [format "$left_src_indicator%s$right_src_indicator" "New Dir"]
+	.main.panel.delete_button configure -text [format "$left_src_indicator%s$right_src_indicator" "Delete"]
+}
+
+
+proc actOnMarkedPlusSelected { action_type req_file } {
+	global UNIX_num_files LXNumFilesShown SidePtr LXPwd
+	global UNIXPwd Overwrite ForceRM OverwriteLX ShowHidden
+	global unix_location lx_location  CmdLXDir CmdLXCopy CmdLXDel
+	global CmdLXRmdir CmdLXMkdir ConfirmDeletions
+
+	set lx_location [set LXPwd]
+	set unix_location [set UNIXPwd]
+
+	set deleteAll 0
+
+	if {$ForceRM == 1} {
+		set rm_flag "-f"
+		set rm_flag_dir "-fr"
+	} else {
+		set rm_flag ""
+		set rm_flag_dir "-r"
+	}
+	if {$Overwrite == 1} {
+		set lxcopy_flag ""
+	} else {
+		set lxcopy_flag "-o"
+	}
+	
+	set LXbase [set LXPwd]
+	upvar #0 "LXDateStampArray(0)" LX_date_arr0
+	if {$LX_date_arr0 == "Refresh this listing"} {
+		set last_pos [string last "/" $LXPwd]
+		set LXbase [string range $LXPwd 0 $last_pos]
+		regsub "\/\$" $LXbase "" LXbase
+	}
+	regsub "\/\$" $LXbase "" LXbase
+
+	upvar #0 "UNIXPwdBase" UNIXbase
+	upvar #0 "UNIXPwdPattern" UNIXpattern
+
+	;#puts stderr "UNIXPwd is \"$UNIXPwd\", LXPwd is \"$LXPwd\""
+
+	;# LXPwd getting hosed somewhere...
+	set save_LXpwd [set LXPwd]
+
+	set num_changes 0
+
+ 	if {$SidePtr == "UNIX"} {
+		if {([regexp "\[^ \]" $save_LXpwd] < 1) && ($action_type == "copy")} {
+			return
+		}
+		;# check the UNIX files/dirs
+		for {set loop 2} {$loop < $UNIX_num_files} {incr loop} {
+			;#set this_file [set UNIXDisplayArray($loop)]
+		 	upvar #0 "UNIXDisplayArray($loop)" this_file_real
+			set this_file [set this_file_real]
+			if {([regexp "^\\+" $this_file]) || ($this_file == $req_file)} {
+				regsub "^\." $this_file "" this_file
+				set last_pos [string length $this_file]
+				incr last_pos -1
+				set last_char [string range $this_file $last_pos $last_pos]
+				;#puts stderr "last_char is \"$last_char\""
+				if {$last_char == "/"} {
+					set this_type "DIR"
+				} else {
+					set this_type "file"
+				}
+				regsub "\/\$" $this_file "" this_file
+				if {[regexp " -> " $this_file] > 0} {
+					set last_pos [string first " -> " $this_file]
+					incr last_pos -1
+					set this_file [string range $this_file 0 $last_pos]
+				}
+				if {$action_type == "copy"} {
+					;#puts stderr "Would copy \"$this_file\""
+					set target_file_name [set this_file]
+					if {[isLegalDOSName $this_file] != 0} {
+						set Proceed 0
+						set tmp_this_file [set this_file]
+						while {$Proceed == 0} {
+							set messageText "This does not look like a legal DOS name. Please enter a valid filename."
+							set rcMsg [dialogText .dosd {Not a legal DOS name} $messageText error red -1 tmp_this_file 80 120 {Skip file} {Copy anyway} {Try this name}]
+						 	if {$rcMsg == 0} {set Proceed 1; set this_type "skip"}
+							if {$rcMsg == 1} {set Proceed 1; continue}
+							if {($rcMsg == 2) && ([isLegalDOSName $tmp_this_file] == 0)} {
+								set target_file_name [set tmp_this_file]
+								set Proceed 1
+								continue
+							}
+						}
+					}
+					if {$this_type == "skip"} {
+						continue
+					}
+					set copy_rc 0
+					;#for {set cloop 0} {$cloop <= $OverwriteLX} {incr cloop} {
+						set full_target_file [concat $LXbase "/" $target_file_name]
+						regsub -all " " $full_target_file "" full_target_file
+						set exists_skip 0
+						if {($OverwriteLX == 1)} {
+						 	;# verify if LX file exists, try to del
+							;#.status.label configure -text "Auto-delete not yet supported"
+							;#puts stderr "checking for existence of file on LX"
+							set file_test [getLXDirInfo $full_target_file bogus_array dontcare dontcare2 dontcare3]
+							if {$file_test > 0} {
+								set exists_skip 1
+								;#puts stderr "\"$full_target_file\" exists, should be deleted"
+								;#puts stderr "4=\"$bogus_array(4)\" 3=\"$bogus_array(3)\""
+								if {[regexp "DIR" $bogus_array(4)] > 0} {
+									;#puts stderr "use lxrmdir \"$CmdLXRmdir\" \"$full_target_file\""
+									catch { set TempOut [eval exec $CmdLXRmdir "\"$full_target_file\""] }
+								} else {
+									;#puts stderr "use lxdel"
+									catch { set TempOut [eval exec $CmdLXDel "\"$full_target_file\""] }
+								}
+								;#puts stderr "del_rc is \"$del_rc\""
+								;#puts stderr "TempOut=\"$TempOut\""							} 
+						}
+						if {$this_type == "file"} {
+							;#puts stderr "$CmdLXCopy \"$this_file\" \"$full_target_file\""
+ 							set copy_rc [catch { set TempOut [eval exec $CmdLXCopy \"$this_file\" \"$full_target_file\"] } errorCode]
+						} elseif {$this_type == "DIR"} {
+							;#puts stderr "$CmdLXCopy -r \"$this_file\" \"$full_target_file\""
+		   					catch {eval exec $CmdLXMkdir "\"$full_target_file\""}
+							set copy_rc [catch { set TempOut [eval exec $CmdLXCopy "-r" \"$this_file\" \"$full_target_file\"] } errorCode]
+						}
+						;#puts stderr "copy_rc is \"$copy_rc\", TempOut is \"$TempOut\""
+						if {[regexp "failed\!" $TempOut] > 0} {set copy_rc -1}
+						;#set copy_rc 1
+						if {$copy_rc == 0} {set cloop 2}
+					;#} ;# loop for auto-delete
+					if {$copy_rc == 0} {
+						incr num_changes
+					} else {
+						set emptyvar ""
+						set messageText [format "LXFileman was not able to create \"$full_target_file\""]
+						set rcMsg [dialogText .dosd {Copy failed} $messageText error red 0 emptyvar 80 120 {OK}]
+					}
+				} elseif {$action_type == "delete"} {
+					;#puts stderr "Would delete \"$this_file\""
+					if { ( $ConfirmDeletions == "1") && ($deleteAll == 0) } {
+					       	set emptyvar ""
+						set messageText [format "Delete \"$this_file\" from UNIX workstation?"]
+						set rcMsg [dialogText .dosd {Confirm deletion(s)} $messageText questhead red 0 emptyvar 60 120 {Skip} {Cancel All} {Delete} {Delete All}]
+						if { $rcMsg == 1 } { return }
+						if { $rcMsg == 0 } { continue }
+						if { $rcMsg == 3 } { set deleteAll 1 }
+					}
+					set this_pwd [pwd]
+					;#puts stderr "PWD is \"$this_pwd\""
+					set del_rc 1
+					if {$this_type == "file"} {
+						;#puts stderr "rm $rm_flag \"$this_file\""
+						set del_rc [catch {eval exec "rm" "$rm_flag" "\"$this_file\""}]
+					} else {
+						;#puts stderr "rm $rm_flag_dir \"$this_file\""
+						set del_rc [catch {eval exec "rm" $rm_flag_dir "\"$this_file\""}]
+					}
+					if {$del_rc == 0} {
+						incr num_changes
+					} else {
+						;# dialog notice
+						;#puts stderr "$del_rc : Could not delete \"$this_file\""
+						set emptyvar ""
+						set messageText [format "LXFileman was not able to delete \"$this_file\""]
+						set rcMsg [dialogText .rmd {Deletion failed} $messageText error red 0 emptyvar 80 120 {OK}]
+					}
+				} 
+			} 
+		}
+	} elseif {$SidePtr == "LX" } {
+		;# check the LX files/dirs
+		for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+			;#set this_file [set LXDisplayArray($loop)]
+		 	upvar #0 "LXDisplayArray($loop)" this_file_real
+			set this_file [set this_file_real]
+			if {([regexp "^\\+" $this_file]) || ($this_file == $req_file)} {
+				regsub "^\." $this_file "" this_file
+				set this_file [lindex $this_file 0]
+				if {[regexp "\[A-Z\]" $this_file] > 0} {
+					set this_type "DIR"
+				} else { set this_type "file" }
+				set full_file [concat $LXbase "/" $this_file]
+	       	       		regsub -all " " $full_file "" full_file
+				;#puts stderr "Looks like we'll try \"$full_file\""
+				if {$action_type == "copy"} {
+					set target_dir "."
+					set TempOut "Cannot get file"
+					if {$this_type == "DIR"} {
+						set target_dir [format "\./$this_file"]
+						;#puts stderr "$CmdLXCopy $lxcopy_flag -r \"$full_file\" \"$target_dir\""
+						set copy_rc [catch { set TempOut [eval exec $CmdLXCopy "$lxcopy_flag -r " "\"$full_file\"" "\"$target_dir\""]}]
+					} else {
+						;#puts stderr "$CmdLXCopy $lxcopy_flag \"$full_file\" \"$target_dir\""
+						set copy_rc [catch { set TempOut [eval exec $CmdLXCopy $lxcopy_flag "\"$full_file\"" "\"$target_dir\""]}]
+					}
+					if {[regexp "Cannot get file" $TempOut] > 0} {
+						;# dialog notice
+						;#puts stderr "$del_rc : Could not delete \"$this_file\""
+						set emptyvar ""
+						set messageText [format "LXFileman was not able to copy \"$this_file\""]
+						set rcMsg [dialogText .rmd {Copy failed} $messageText error red 0 emptyvar 80 120 {OK}]
+					} else {
+						incr num_changes
+					}
+				} elseif {$action_type == "delete"} {
+					if { ( $ConfirmDeletions == "1") && ( $deleteAll == 0 ) } {
+					       	set emptyvar ""
+						set messageText [format "Delete \"$this_file\" from palmtop?"]
+						set rcMsg [dialogText .dosd {Confirm deletion(s)} $messageText questhead red 0 emptyvar 60 120 {Skip} {Cancel All} {Delete} {Delete All}]
+						if { $rcMsg == 1 } { return }
+						if { $rcMsg == 0 } { continue }
+						if { $rcMsg == 3 } { set deleteAll 1 }
+					}
+					set TempOut "not found"
+					if {$this_type == "DIR"} {
+						;#puts stderr "$CmdLXRmdir \"$full_file\""
+						set del_rc [catch {set TempOut [eval exec $CmdLXRmdir "\"$full_file\""]} ]
+					} else {
+						;#puts stderr "$CmdLXDel \"$full_file\""
+						set del_rc [catch {set TempOut [eval exec $CmdLXDel "\"$full_file\""]} ]
+					}
+					;#puts stderr "del_rc=$del_rc TempOut is \"$TempOut\""
+					if {([regexp "Could not delete" $TempOut] > 0) || ([regexp "not found" $TempOut] > 0)} {
+						;# dialog notice
+						;#puts stderr "$del_rc : Could not delete \"$this_file\""
+						set emptyvar ""
+						set messageText [format "LXFileman was not able to delete \"$this_file\""]
+						set rcMsg [dialogText .rmd {Deletion failed} $messageText error red 0 emptyvar 80 120 {OK}]
+					} else {
+						incr num_changes
+					}
+				}
+				;#puts stderr "Would $action_type \"$full_file\" to \"$UNIXPwd\""
+			} 
+		}
+	}
+	;# Call functions to refresh file listings
+	if {$num_changes > 0} {
+		set LXPwd [set save_LXpwd]
+		set LX_Test [listLXDir $LXPwd ]
+		set UNIX_Test [listUNIXdir $UNIXpattern $UNIXbase ]
+	}
+	;#puts stderr "Trying to fix the appearance of the Copy button"
+	;#.main.panel.copy_button configure -relief raised
+	return 0
+}
+		
+;# MAIN ------------------------------------------------------------------
+
+wm title . "LXFileman $Version   GNU (c) 1997-2001 P Watkins"
+
+
+
+;# Fix the List box colors & fonts 
+catch { .main.lx.files configure -font $ListFont }
+catch { .main.lx.files configure -bg $ListBGColor }
+catch { .main.unix.files configure -font $ListFont }
+catch { .main.unix.files configure -bg $ListBGColor }
+
+redrawDriveButtons
+
+;# command-line options?
+;# that's right, you can start the fileman with the name of a LX dir to list
+if {$argc > 0} {
+	;#set LXPwd [lindex $argv 0]
+	set LXStartDir [lindex $argv 0]
+}
+
+;# Check the LX
+if {$LXStartDir != " "} {
+	SetLXTOOLSvars
+	set LX_Test [listLXDir $LXStartDir ]
+}
+
+;# Check the UNIX dir
+if {$UNIXStartDir != " " } {
+	set rc [catch {cd $UNIXStartDir } ]
+	;#puts stderr "rc from early cd attempt is $rc"
+	if {$rc != 0} {
+		.status.label configure -text "Cannot cd into \"$UNIXStartDir\""
+	} else {
+		listUNIXdir "" $UNIXStartDir 
+	}
+}
+   
+if {$Geometry != "" } {
+	catch {wm geometry . $Geometry}
+}
+
+. configure -cursor left_ptr
+
+setKeyBindings
+
+
+;# EVENTS ----------------------------------------------------------------
+
+bind .main.panel.exit_button <ButtonRelease-1> {
+	exit
+}
+
+bind .main.lx.drive.1 <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.drive.1 <ButtonRelease-1> {
+	changeLXDrive $Drive1
+	. configure -cursor left_ptr
+	return
+}
+bind .main.lx.drive.2 <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.drive.2 <ButtonRelease-1> {
+	changeLXDrive $Drive2
+	. configure -cursor left_ptr
+	return
+}
+bind .main.lx.drive.3 <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.drive.3 <ButtonRelease-1> {
+	changeLXDrive $Drive3
+	. configure -cursor left_ptr
+	return
+}
+bind .main.lx.drive.4 <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.drive.4 <ButtonRelease-1> {
+	changeLXDrive $Drive4
+	. configure -cursor left_ptr
+	return
+}
+bind .main.lx.drive.5 <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.drive.5 <ButtonRelease-1> {
+	changeLXDrive $Drive5
+	. configure -cursor left_ptr
+	return
+}
+
+bind .main.panel.copy_button <Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.panel.copy_button <ButtonRelease-1> {
+	DoCopy
+	. configure -cursor left_ptr
+	return
+}
+proc f2Press {} {
+	global FilerKeyF2
+	if { $FilerKeyF2 == "1" } {
+		. configure -cursor watch
+	}
+	return
+}
+proc f2Release {} {
+	global FilerKeyF2
+	if { $FilerKeyF2 == "1" } {
+		DoCopy
+		. configure -cursor left_ptr
+	}
+	return
+}
+proc DoCopy {} {
+	SetLXTOOLSvars
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0} {
+		.status.label configure -text "Please select something (will copy selection AND marked entries)"
+	 	return
+	}
+	;# call the actOnMarkedPlusSelected proc
+	actOnMarkedPlusSelected "copy" $req_file
+	return 0
+}
+
+bind .main.panel.mkdir_button <ButtonRelease-1> {
+ 	if {$SidePtr == "UNIX"} {
+     		set messageText [format "Please enter a name for the new directory"]
+		set choice " "
+		set rcMsg [dialogText .rmd {Making new directory} $messageText questhead darkgreen 0 choice 80 120 {OK} {Cancel}]
+		if {($choice == "") || ($rcMsg == 1)} {return}
+		set rc [catch {eval exec "mkdir" "\"$choice\""}]
+		if {$rc != 0} {
+			set messageText [format "Unable to create directory \"$choice\""]
+			.status.label configure -text [set messageText]
+		} else {
+			;# refresh UNIX listing
+			set UNIX_Test [listUNIXdir $UNIXPwdPattern $UNIXPwdBase ]
+		} 				
+	} elseif {$SidePtr == "LX"} {
+     		set messageText [format "Please enter a name for the new directory"]
+		set choice " "
+		set rcMsg [dialogText .rmd {Making new directory} $messageText questhead darkgreen 0 choice 80 120 {OK} {Cancel}]
+		if {$choice == ""} {return}
+		if {$rcMsg == 1} {return}
+		if {[isLegalDOSName $choice] != 0} {
+			.status.label configure -text "Please use a valid DOS name"
+			return
+		}
+		;# Make full_choice with LXPwd base
+		set LXbase [set LXPwd]
+		set LX_date_arr0 [set LXDateStampArray(0)]
+     		if {$LX_date_arr0 == "Refresh this listing"} {
+			set last_pos [string last "/" $LXPwd]
+			set LXbase [string range $LXPwd 0 $last_pos]
+			regsub "\/\$" $LXbase "" LXbase
+		}
+		regsub "\/\$" $LXbase "" LXbase
+		set full_choice [concat $LXbase "/" $choice]
+		regsub -all " " $full_choice "" full_choice
+		set rc [catch {eval exec "$CmdLXMkdir" "\"$full_choice\""}]
+		if {$rc != 0} {
+			set messageText [format "Unable to create directory \"$full_choice\""]
+			.status.label configure -text [set messageText]
+		} else {
+			;# refresh LX listing
+			set LX_Test [listLXDir $LXPwd ]
+		} 
+	} else {
+		.status.label configure -text "Please select a file to indicate which side"
+		return
+	}
+}
+
+bind .main.panel.delete_button <Button-1> {
+	. configure -cursor watch
+	return
+}
+proc delPress {} {
+	global FilerKeyDel
+	puts stderr "del was pressed"
+	if { $FilerKeyDel == "1" } {
+		. configure -cursor watch
+	}
+	return
+}
+proc delRelease {} {
+	global bindings FilerKeyDel
+	if { $FilerKeyDel == "1" } {
+		DoDelete
+		. configure -cursor left_ptr
+	}
+	return
+}
+bind .main.panel.delete_button <ButtonRelease-1> {
+	DoDelete
+	. configure -cursor left_ptr
+	return
+}
+proc DoDelete {} {
+	SetLXTOOLSvars
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0} {
+		.status.label configure -text "Please select something (will delete selection AND marked entries)"
+	 	return
+	}
+	;# call the actOnMarkedPlusSelected proc
+	actOnMarkedPlusSelected "delete" $req_file
+	return
+}
+
+bind .main.panel.mark_button <ButtonRelease-1> {
+	set rc [catch {set req_file [selection get]}]
+	if {$rc !=0} {return}
+	set pt [regexp "^.\\.\\." $req_file]
+	set pt2 [regexp "^.\\.\[\/ \]" $req_file]
+	if {($pt == 1) || ($pt2 == 1)} {
+		;#puts stderr "Can't mark, nothing selected or selected parents"
+		return
+	}
+	if {$SidePtr == "UNIX"} {
+ 		for {set loop 0} {$loop < $UNIX_num_files} {incr loop} {
+			;#puts stderr "Checking UNIX array pos $loop"
+			if {$UNIXDisplayArray($loop) == $req_file} {
+				set rc2 [regsub "^ " $req_file "m" req_file]
+				if {$rc2 == 1} {
+					incr UNIXNumMarkedFiles 1
+					set UNIXMarkedFilesSizeTotal [expr ($UNIXMarkedFilesSizeTotal + $UNIXFileSizeArray($loop))]
+				} else {
+					incr UNIXNumMarkedFiles -1
+					set UNIXMarkedFilesSizeTotal [expr ($UNIXMarkedFilesSizeTotal - $UNIXFileSizeArray($loop))]
+				}
+				regsub "^\\+" $req_file " " req_file
+				regsub "^m" $req_file "+" req_file
+				set UNIXDisplayArray($loop) [set req_file]
+ 				.main.unix.files delete $loop
+				.main.unix.files insert $loop $req_file
+				set nice_stotal [insertCommas $UNIXMarkedFilesSizeTotal]
+				;#set UNIXNumMarkedFiles [expr ($UNIX_num_files - 2)]
+				set t2 [concat $UNIXNumMarkedFiles "marked " $nice_stotal "bytes"]
+				.main.unix.status configure -text [set t2]
+				.status.label configure -text "Reload this directory to unmark all files"
+				return
+		 	}
+	 	}
+	} elseif {$SidePtr == "LX"} {
+		for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+			;#puts stderr "Checking LX array pos $loop"
+ 			if {$LXDisplayArray($loop) == $req_file} {
+ 				set rc2 [regsub "^ " $req_file "m" req_file]
+				if {$rc2 == 1} {
+					incr LXNumMarkedFiles 1
+					set LXX_size_files_total [expr ($LXMarkedFilesSizeTotal + $LXFileSizeArray($loop))]
+				} else {
+					incr LXNumMarkedFiles -1
+					set LXMarkedFilesSizeTotal [expr ($LXMarkedFilesSizeTotal - $LXFileSizeArray($loop))]
+				}
+				;#regsub "^ " $req_file "m" req_file
+				regsub "^\\+" $req_file " " req_file
+				regsub "^m" $req_file "+" req_file
+				set LXDisplayArray($loop) [set req_file]
+ 				.main.lx.files delete $loop
+				.main.lx.files insert $loop $req_file
+				set nice_stotal [insertCommas $LXMarkedFilesSizeTotal]
+				;#set LXNumMarkedFiles [expr ($LXNumFilesShown - 2)]
+				set t2 [concat $LXNumMarkedFiles "marked " $nice_stotal "bytes"]
+				.main.lx.status configure -text [set t2]
+				;#.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+				.status.label configure -text "Reload this directory to unmark all files"
+				return
+		 	}
+	 	}
+	}
+}
+
+bind .main.panel.mark_all_button <ButtonRelease-1> {
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0} {
+		.status.label configure -text "Please select a file and try again"
+		return
+	}
+	if {$SidePtr == "UNIX"} {
+		set UNIXMarkedFilesSizeTotal 0
+ 		for {set loop 2} {$loop < $UNIX_num_files} {incr loop} {
+			set req_file  [set UNIXDisplayArray($loop)]
+			regsub "^ " $req_file "+" req_file
+			set UNIXDisplayArray($loop) [set req_file]
+			.main.unix.files delete $loop
+			.main.unix.files insert $loop $req_file
+			set t2 [set UNIXFileSizeArray($loop)]
+			set UNIXMarkedFilesSizeTotal [expr ($UNIXMarkedFilesSizeTotal + $t2)]
+			;#.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+			;#return
+	 	}
+		set nice_stotal [insertCommas $UNIXMarkedFilesSizeTotal]
+		set UNIXNumMarkedFiles [expr ($UNIX_num_files - 2)]
+		set t2 [concat $UNIXNumMarkedFiles "marked " $nice_stotal "bytes"]
+		.main.unix.status configure -text [set t2]
+		.status.label configure -text "Reload this directory to unmark all files"
+	} elseif {$SidePtr == "LX"} {
+		set LXMarkedFilesSizeTotal 0
+		set LXNumMarkedFiles 0
+ 		for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+			if {[regexp "^.\\." $LXDisplayArray($loop)]} { continue }
+			set req_file  [set LXDisplayArray($loop)]
+			regsub "^ " $req_file "+" req_file
+			set LXDisplayArray($loop) [set req_file]
+			.main.lx.files delete $loop
+			.main.lx.files insert $loop $req_file
+			incr LXNumMarkedFiles
+			if {$LXFileSizeArray($loop) != "<DIR>"} {
+				set t2 [set LXFileSizeArray($loop)]
+				set LXMarkedFilesSizeTotal [expr ($LXMarkedFilesSizeTotal + $t2)]
+			} 
+			;#.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+			;#return
+	 	}
+		set nice_stotal [insertCommas $LXMarkedFilesSizeTotal]
+		;#set LXNumMarkedFiles [expr ($LXNumFilesShown - 2)]
+		set t2 [concat $LXNumMarkedFiles "marked " $nice_stotal "bytes"]
+		.main.lx.status configure -text [set t2]
+		.status.label configure -text "Reload this directory to unmark all files"
+		return
+	}
+}
+
+bind .main.lx.location <KeyPress-Return> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.location <KeyRelease-Return> {
+	DoLXreturn
+	. configure -cursor left_ptr
+	return
+}
+proc DoLXreturn {} {
+	SetLXTOOLSvars
+	upvar #0 "lx_location" lx_location
+	upvar #0 "LXPwd" LXPwd
+	set req_dir [string toupper $lx_location]
+	regsub -all "\\\\" $req_dir "/" req_dir
+	;#puts stderr "LX return for \"$req_dir\""
+	if {$req_dir == ""} {
+		;#puts stderr "empty req_dir, resetting"
+		set req_dir [set LXPwd]
+	}
+	regsub "\/\\\*\.\\\*\$" $req_dir "/" req_dir
+	;#puts "Checking dir \"$req_dir\""
+	.status.label configure -text "Checking dir \"$req_dir\""
+	set LX_Test [listLXDir $req_dir ]
+	if { $LX_Test > 0 } {
+		set lx_location [set LXPwd]
+	}
+	return
+}
+
+bind .main.unix.location <KeyPress-Return> {
+	. configure -cursor watch
+	return
+}
+bind .main.unix.location <KeyRelease-Return> {
+	DoUNIXreturn
+	. configure -cursor left_ptr
+	return
+}
+proc DoUNIXreturn {} {
+	SetLXTOOLSvars
+	upvar #0 "unix_location" unix_location
+	upvar #0 "UNIXPwd" UNIXPwd
+	set req_dir [set unix_location]
+	;#puts "Will try to read \"$req_dir\""
+	set slashend [regexp "\/\$" $req_dir]
+	if {$slashend == 0} {
+		;#puts stderr "No slash, trying to cd into \"$req_dir\""
+		set rc [catch {cd $req_dir}]
+		if {$rc == 0} {
+			;#puts stderr "cd succeeded, adding slash"
+			regsub "\$" $req_dir "/" req_dir
+			set base_dir [set req_dir]
+			set req_dir ""
+			;#set unix_location [set req_dir]
+		} else {
+	    		;#puts stderr "No slash, trying to cd into base and ls on pattern"
+ 			set base_dir [getUNIXBaseDir $req_dir]
+			set req_dir [getUNIXLastPart $req_dir]
+  			set rc [catch {cd "$base_dir"}]
+			if {$rc != 0} {
+				.status.label configure -text "Cannot cd into \"$base_dir\""
+    				set unix_location [set UNIXPwd]
+				. configure -cursor left_ptr
+   				return
+      			}
+		}
+	} else {
+		;#puts stderr "typed a dir, trying to cd into \"$req_dir\""
+		set rc [catch {cd $req_dir}]
+		if {$rc != 0} {
+			.status.label configure -text "Cannot cd into \"$req_dir\""
+			set unix_location [set UNIXPwd]
+			. configure -cursor left_ptr
+			return
+		}
+		set base_dir [set req_dir]
+		set req_dir ""
+	}
+	;#puts "Checking dir \"$unix_location\""
+	.status.label configure -text "Checking dir \"$unix_location\""
+	set StringValEmpty ""
+	set UNIX_Test [listUNIXdir $req_dir $base_dir ]
+	;#puts stderr "\"$UNIXPwdBase\" \+ \"$UNIXPwdPattern\""
+	if { $UNIX_Test < 0 } {
+		set unix_location [set UNIXPwd]
+	}
+	return
+}
+	
+bind .main.lx.files <Double-Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.lx.files <Double-ButtonRelease-1> {
+	. configure -cursor left_ptr
+	SetLXTOOLSvars
+	set SidePtr ""
+	redrawButtons $SidePtr
+	;#puts "double click, LXPwd is \"$LXPwd\""
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0} { return }
+	;#puts "req_file is \"$req_file\""
+	set parent_test [regexp "^.\\.\\." $req_file]
+	set same_test [regexp "^.\\." $req_file]
+	if {$parent_test == 1} {
+		set req_file [extractLXParent $LXPwd]
+	} elseif {$same_test == 1} {
+		;#puts "refresh LXPwd"
+		set req_file [set LXPwd]
+	} else {
+		set lc_test [regexp "\[a-z\]" $req_file ]
+		;#puts stderr "lc_test is $lc_test";
+		if {$lc_test == 1} {
+ 			if {$2FileMark == 0} {
+				;#puts stderr "showing info"
+				for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+					;#puts stderr "Checking LX array pos $loop"
+					if {$LXDisplayArray($loop) == $req_file} {
+						.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+				       		return
+					}
+				}
+			} else {
+				;#puts stderr "Marking"
+       				for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+					;#puts stderr "Checking LX array pos $loop $LXDisplayArray($loop)"
+ 		      			;#puts stderr "current LX size total is $LXMarkedFilesSizeTotal"
+					if {$LXDisplayArray($loop) == $req_file} {
+ 						set rc2 [regsub "^ " $req_file "m" req_file]
+						if {$rc2 == 1} {
+							incr LXNumMarkedFiles 1
+	   						set LXMarkedFilesSizeTotal [expr ($LXMarkedFilesSizeTotal + $LXFileSizeArray($loop))]
+						} else {
+							incr LXNumMarkedFiles -1
+							set LXMarkedFilesSizeTotal [expr ($LXMarkedFilesSizeTotal - $LXFileSizeArray($loop))]
+						}
+      						;#regsub "^ " $req_file "m" req_file
+			      			regsub "^\\+" $req_file " " req_file
+						regsub "^m" $req_file "+" req_file
+			   			set LXDisplayArray($loop) [set req_file]
+ 						.main.lx.files delete $loop
+	      					.main.lx.files insert $loop $req_file
+						set nice_stotal [insertCommas $LXMarkedFilesSizeTotal]
+			       			;#set LXNumMarkedFiles [expr ($LXNumFilesShown - 2)]
+			       			set t2 [concat $LXNumMarkedFiles "marked " $nice_stotal "bytes"]
+						.main.lx.status configure -text [set t2]
+						;#.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+						.status.label configure -text "Reload this directory to unmark all files"
+						return
+		 			}
+	 			}
+			}
+		}
+		;#puts "Regular file, catting"
+		regsub "^\\+" $req_file " " req_file
+		set slash_test [regsub "\/\$" $LXPwd "" foo_var]
+		if {$slash_test != 1} {
+			regsub "\$" $LXPwd "/" LXPwd
+			set lx_location [set LXPwd]
+		}
+		set req_file [concat $LXPwd $req_file]
+		regsub -all " " $req_file "" req_file
+	}
+	;#puts "Checking \"$req_file\""
+	.status.label configure -text "Checking \"$req_file\""
+	set LX_Test [listLXDir $req_file ]
+	if { $LX_Test > 0 } {
+		set lx_location [set req_file]
+		set LXPwd [set req_file]
+	}
+}
+
+proc getInfo {args} {
+	DebugInfo 5 puts "calling getInfo"
+	global SidePtr UNIX_num_files UNIXDisplayArray UNIXFullInfoArray
+	global LXNumFilesShown LXDateStampArray LXTimeStampArray LXDisplayArray
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0} {
+		return
+	}
+	;# remove any posible mark
+	;#regsub "^." $req_file " " req_file
+	;#puts stderr "selection looks like \"$req_file\""
+	if {$SidePtr == "UNIX" } {
+		for {set loop 0} {$loop < $UNIX_num_files} {incr loop} {
+			;#puts stderr "comparing to \"$UNIXDisplayArray($loop)\"\n"
+			if {$UNIXDisplayArray($loop) == $req_file} {
+				.status.label configure -text "$UNIXFullInfoArray($loop)"
+				return
+			}
+		}
+	} else {
+		for {set loop 0} {$loop < $LXNumFilesShown} {incr loop} {
+			;#puts stderr "Checking LX array pos $loop"
+			if {$LXDisplayArray($loop) == $req_file} {
+				;#set info_msg [format "$req_file $LXDateStampArray($loop) $LXTimeStampArray($loop"]
+				;#puts stderr "LX info is \"$info_msg\""
+				.status.label configure -text [format "$req_file     $LXDateStampArray($loop)    $LXTimeStampArray($loop)"]
+				return
+			}
+		}
+	}
+}
+
+
+bind .main.panel.info_button <ButtonRelease-1> { getInfo }
+
+bind .main.unix.files <ButtonRelease-1> {
+ 	set SidePtr "UNIX"
+	redrawButtons $SidePtr
+	return
+}
+
+bind .main.lx.files <ButtonRelease-1> {
+ 	set SidePtr "LX"
+	redrawButtons $SidePtr
+	return
+}
+
+bind .main.unix.files <Double-Button-1> {
+	. configure -cursor watch
+	return
+}
+bind .main.unix.files <Double-ButtonRelease-1> {
+	. configure -cursor left_ptr
+	SetLXTOOLSvars
+	set SidePtr ""
+	redrawButtons $SidePtr
+	;#puts "double click, UNIXPwd is \"$UNIXPwd\""
+	set rc [catch {set req_file [selection get]}]
+	if {$rc != 0 } { return }
+	;#puts "req_file is \"$req_file\""
+	set req_file [getUNIXFirstName $req_file]
+	;#puts "req_file is \"$req_file\""
+	set parent_test [regexp "^.\\.\\." $req_file]
+	set same_test [regexp "^.\\.\/" $req_file]
+	if {$parent_test == 1} {
+		if {$UNIXPwd != "/"} {
+			set req_file [extractLXParent $UNIXPwd]
+			set rc [catch {cd "$req_file"}]
+			;#puts stderr "cd rc is $rc"
+			if {$rc != 0} {
+				.status.label configure -text "Cannot cd into \"$req_file\""
+				return
+			} 
+			set final_pwd [set req_file]
+			set base_dir [set req_file]
+		}
+	} elseif {$same_test == 1} {
+		;#puts "refresh UNIXPwd"
+		;# Trim any file names, now we just want a dir
+		;#regsub "\/\[^\/\]*\$" $req_file "/" req_file
+		set req_file [set UNIXPwd]
+		set rc [catch {cd "$req_file"}]
+		;#puts stderr "cd rc is $rc"
+		if {$rc != 0} {
+			.status.label configure -text "Cannot cd into \"$req_file\""
+			return
+		} 
+		set base_dir [set UNIXPwd]
+		set final_pwd [set UNIXPwd]
+	} else {
+		set dir_test [regexp "\/\$" $req_file ]
+		if {$dir_test != 1} {
+			if {$2FileMark == 0} {
+		 		for {set loop 0} {$loop < $UNIX_num_files} {incr loop} {
+					if {$UNIXDisplayArray($loop) == $req_file} {
+						.status.label configure -text "$UNIXFullInfoArray($loop)"
+				       		return
+		  			}
+				}
+			} else {
+			  	for {set loop 0} {$loop < $UNIX_num_files} {incr loop} {
+			 		;#puts stderr "Checking UNIX array pos $loop"
+					if {$UNIXDisplayArray($loop) == $req_file} {
+				      		set rc2 [regsub "^ " $req_file "m" req_file]
+						if {$rc2 == 1} {
+							incr UNIXNumMarkedFiles 1
+		      					set UNIXMarkedFilesSizeTotal [expr ($UNIXMarkedFilesSizeTotal + $UNIXFileSizeArray($loop))]
+						} else {
+			 				incr UNIXNumMarkedFiles -1
+	     						set UNIXMarkedFilesSizeTotal [expr ($UNIXMarkedFilesSizeTotal - $UNIXFileSizeArray($loop))]
+						}
+						regsub "^\\+" $req_file " " req_file
+						regsub "^m" $req_file "+" req_file
+	  					set UNIXDisplayArray($loop) [set req_file]
+ 	       					.main.unix.files delete $loop
+						.main.unix.files insert $loop $req_file
+						set nice_stotal [insertCommas $UNIXMarkedFilesSizeTotal]
+						;#set UNIXNumMarkedFiles [expr ($UNIX_num_files - 2)]
+			    			set t2 [concat $UNIXNumMarkedFiles "marked " $nice_stotal "bytes"]
+			       			.main.unix.status configure -text [set t2]
+						.status.label configure -text "Reload this directory to unmark all files"
+						return
+			      		}
+				}
+		 	}
+	 	}
+		
+		
+		;#puts "Regular file, catting"
+		regsub "^." $req_file "" req_file
+		regsub "\/\$" $UNIXPwd "" UNIXPwd
+		;#set req_file [concat $UNIXPwd $req_file]
+		;#puts "UNIXPwd is \"$UNIXPwd\""
+		set final_pwd [format "$UNIXPwd/$req_file" ]
+		set pwd_val [pwd]
+		;#puts stderr "PWD is \"$pwd_val\", will try to cd into \"$req_file\""
+		set rc [catch {cd "$req_file"}]
+		;#puts stderr "cd rc is $rc"
+		if {$rc != 0} {
+			.status.label configure -text "Cannot cd into \"$req_file\""
+			return
+		} else {
+			set pwd_val [pwd]
+			set base_dir [set pwd_val]
+			;#puts stderr "PWD is now \"$pwd_val\""
+		}
+	}
+	;#puts "Checking \"$final_pwd\""
+	.status.label configure -text "Checking \"$req_file\""
+	set StringValEmpty ""
+	set UNIX_Test [listUNIXdir $StringValEmpty $base_dir ]
+	;#puts stderr "listUNIXdir returned $UNIX_Test"
+	if { $UNIX_Test > 0 } {
+		set pwd_val [pwd]
+		set nice_real_pwd [format "$pwd_val/"]
+		regsub "^//\$" $nice_real_pwd "/" nice_real_pwd
+		set final_pwd [set nice_real_pwd]
+		set UNIXPwd [set nice_real_pwd]
+		set unix_location [set final_pwd]
+		set UNIXPwd [set final_pwd]
+		set UNIXPwdBase [set UNIXPwd]
+		set UNIXPwdPattern ""
+	}
+}
+
+return 0
+

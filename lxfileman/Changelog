@@ -1,0 +1,93 @@
+
+Thanks go out to Mitch Hamm and Jaime Viehweg for helping debug!
+
+Change history of LXFileman:
+
+0.96b  8/01/1999 Fixed:
+		 * Previous versions would crash if they tried to list
+		   the contents of a Unix directory that contained a
+		   file with curly braces (as created by 'find2perl')
+
+0.96a  3/06/1999 Fixed:
+		 * another stupid port/speed problem when double-clicking
+		   on file listings (yes, Mitch, finally)
+
+0.96   2/21/1999 Fixed:
+		 * Problems setting port/speed when using LX
+		   drive letter buttons
+		 Added:
+		 * Checks OS name with uname and handles Linux
+		   'setserial' port speed configuration
+
+0.91c 11/24/1997 Fixed:
+		 * Stray diagnostic message when Delete key pressed
+		 Added:
+		 * Much nicer dialog boxes for deletion confirmation
+
+0.91b 11/9/1997	 Fixed:
+		 * F2 & Delete key bindings really messed up
+		   dialog boxes, also interfered with regular
+		   LX & UNIX location entry boxes
+		 * Dump if unable to "cd" into requested UNIX dir
+		 * Did not restore LX location if LX listing failed
+
+0.91  11/9/1997  Fixed:
+		 * Cleaned the code up a bit, trimmed script
+		   filesize by ~ 10%
+		 Added:
+		 * Custom port name now shows up in cascading menu
+		 * Cancel button on Set custom port name dialog
+		 * Changed many radiobuttons to checkbuttons,
+		   added more color, other general UI improvements
+
+0.90c 11/6/1997  Added:
+		 * couple more bindings that change the cursor
+
+0.90b 11/2/1997  Added:
+		 * Now changes cursor to watch icon when doing most
+		   time-consuming operations
+		 * Now has bindings for F2 (copy) and Delete keys
+		 * Now has optional delete confirmation
+
+0.90 10/12/1997  Fixed (?)
+		 * Change Button binds to "ButtonRelease-1" per 
+		   suggestion of a USENET post by a Sun employee
+		   ...should fix Copy/Delete button corruption
+
+0.89 8/23/1997	 Fixed:
+	 	 * Now parses output of ls on startup so more versions
+		   of "ls" should be auto-detected
+		 * Variables & functions renamed for better readability
+
+0.88e 8/10/1997  Fixed:
+		 * LX display broken if there was a filename with a space
+		   (note that LXCOPY and even the Filer have trouble with
+		    filenames that include spaces)
+		 Added: 
+		 * Option to sort LX files & dir names alphabetically
+		 * "Cancel" button on New Dir dialogue box
+		 * Cleaned up the Settings menus some more
+
+0.88c 8/7/1997	 Added:
+		 * Colors on dialog bitmaps
+		 * Settings saves size & window postion
+		 * Added UNIX sorting option
+		 * Made 4 UNIX options a cascading menu
+
+0.88 8/5/1997	 Fixed:
+		 * 0.87's ls -laF code did not work with file/dir names
+		   that had spaces 
+		 * Dialog boxes now appear in predictable places
+		 * Main window now resizes well horizontally
+
+0.87 8/4/1997	 Fixed:
+		 * did not get name from ls -laF correctly on Solaris
+		 Added:
+		 * Drive button letters now user-configurable
+		 * Number of drive buttons is configurable
+
+0.84 8/3/1997	 Fixed:
+		 * Drive buttons did not request new line speed
+
+0.83 8/3/1997	 First public beta
+

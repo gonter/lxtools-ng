@@ -1,0 +1,249 @@
+.TH lxbackup l Local
+.SH NAME
+lxbackup - Backup and restore the files on your HP 95LX, 100LX or 200LX
+.SH SYNOPSIS
+.B lxbackup
+[
+.I dir ...
+] [
+.B -all
+] [
+.B -since
+.I mmddhhmm[yy]
+] [
+.B -newer
+.I filename
+] [
+.B -a
+] [
+.B -v
+] [
+.B -n
+] [
+.B -c
+] [
+.I -port
+] [
+.B -d
+.I devname
+] [
+.B -b
+.I baudrate
+] [
+.B -l
+] [
+.B -restore
+] [
+.B -q|h|?
+] [
+.B -exclude
+.I pat pat ...
+]
+
+.SH DESCRIPTION
+.I lxbackup
+is a program to automatically do backups and restores on the
+HP100LX and HP200LX palmtop computers using a serial line. In order to use
+lxbackup, you need to connect your palmtop with the Unix machine using a
+serial cable. Then, you have to launch Filer on the palmtop and adjust the
+communication options in the "Communications/Remote Settings..." dialog
+of Filer to 38400 baud, Com1 and server mode enabled. That's it.
+
+The default is to backup any file on the HP which is newer than its
+most recent backup copy (if any).  Optionally, you may backup all files
+newer than a specified date, newer than a specified file, or all
+files regardless of age.
+
+.SH OPTIONS
+.TP
+.B -q|h|?
+Gets quick help.
+.TP
+.B -all
+Tells lxbackup to backup all files, regardless of age.
+.TP
+.B -a
+Tells lxbackup to backup all files with archive bit set, ignoring
+others.  The archive bit is set whenever you modify a file. It can
+be cleared using  the  ATTRIB command (see ATTRIB /?).
+.TP
+\fB-since\fP \fImmddhhmm[yy]\fP
+Tells lxbackup to backup all files modified more recently than the
+specified date. (yy < 80 is assumed to be 21st century, e.g. 
+"1231094500" would specify 9:45 am, Dec 31st, 2000
+.TP
+\fB-newer\fP \fIfilename\fP
+Tells lxbackup to backup all files modified more recently than the
+specified file.
+.TP
+.B -v
+Tells lxbackup to output status messages as it performs backups.
+.TP
+.B -n
+Tells lxbackup not to actually transfer any files, but to list the
+files that \fIwould\fP be transferred otherwise.
+.TP
+.B -c
+Tells lxbackup to use "-" instead of ":" when writing files to the
+local filesystem. Useful when writing to DOS partitions, NetWare
+servers, etc. Note to restore from such a backup you must also use
+the -c switch, like this:
+.nf
+
+	lxbackup -c -restore c:
+
+.TP
+.B -restore
+Tells lxbackup to transfer files from the Unix system to the HP LX.
+.TP
+.B -1, -2, -3 ... -8
+Sets serial line 1, 2, 3 ... 8, respectively. Default is 1.
+These correspond to /dev/cua0, /dev/cua1 and so on on some computers,
+/dev/ttya, /dev/ttyb and so on on others.
+.TP
+\fB-d /dev/\fP\fIdevice\fP
+Sets serial line explicitly.
+.TP
+\fB-b\fP \fIbaudrate\fP
+sets the baud rate to \fIbaudrate\fP. Default is 38400.
+.TP
+\fB-exclude\fP \fIpattern pattern ...\fP
+Provides a list of patterns to exclude from backup (or restore).  Files
+matching these patterns will not be transferred.  Typically used to
+exclude .exe, .exm and .com files, which are usually large and which are
+probably backed up somewhere else already.
+
+
+
+.SH EXAMPLES
+.TP
+lxbackup
+Backup your C: disk, baud rate defaults to 38400, port defaults to
+first port, directory defaults to C:, backup everything in sight.
+.TP
+lxbackup c: -2 -baud 19200
+Backup your C: disk, use port 2, set baud rate to 19200.
+.TP
+lxbackup c: a: -n -exclude .exe .exm .com
+Check your C: and A: disks, see which files would be backed up.
+Skip any files ending with .exe, .exm, or .com
+.TP
+lxbackup c: a: -v -exclude .exe .exm .com
+Backup your C: and A: disks.  Watch progress of backup.
+Skip any files ending with .exe, .exm, or .com
+.TP
+lxbackup c:/_dat c:/games c:/pgp -v -exclude .exe .com
+Backup some specific directories.
+
+.TP
+Shell Script
+Here is the shell script you can use on your unix box to execute your
+daily backups.
+.nf
+
+	#! /bin/sh
+
+	cd $HOME/hp100/backups
+	lxbackup c: a: -v -d /dev/ttyb -exclude .exm .exe .com
+
+.fi
+(This creates the subdirectories $HOME/hp100/backups/c:/ and
+$HOME/hp100/backups/a:/)
+
+.TP
+lxbackup -restore
+Restore everything from your C: disk.  Baud rate defaults to 38400, port
+defaults to first port.
+.TP
+lxbackup c:/games -2 -baud 19200
+Restore one specific directory.
+.TP
+lxbackup c: -v -restore -newer lastbackup.list
+Restore all files which have been modified on local disk more recently
+than the file "lastbackup.list".
+
+.SH NOTES
+
+Upper case and lower case do not matter.  Lxbackup will convert
+all filenames to upper case for the HP, and lower case for the
+local file systems.
+.PP
+Likewise, it does not matter if you use '/' or '\' as the
+directory seperator.
+.PP
+It is not required to put the drive letter in the directory
+name, but highly recommended.  Whichever you do, be consistent,
+as this is the name lxbackup will use for the directory into
+which the files will be stored.  If you use a drive letter, the
+backups will be done into a directory with that drive letter as
+a name, e.g. "c:/".  (Unix allows ':' (and practically anything
+else) as part of a directory or file name)
+.PP
+Order of directories and options is unimportant, except that
+the -exclude option must be the last thing on the command
+line.
+.PP   
+If you have problems with transfering files, you can try a lower
+baud rate. Set your palmtop, e.g., to 19200 baud and run the
+LX tools with the "-b 19200" option.
+
+.SH ENVIRONMENT
+
+The device name and number as well as the baud rate can be overriden
+by environment variables. If these variables are set, the corresponding
+command line options are ignored:
+.TP
+LXTOOLS_LINE
+specifies the device to be used, e.g. "/dev/ttya".
+.TP
+LXTOOLS_BAUD
+specifies the baud rate to be used, e.g. "9600".
+.TP
+LXTOOLS_STDOUT
+specifies that output should be sent to STDOUT (default is STDERR).
+
+.SH DIAGNOSTICS
+
+If you see the message "Cannot open /dev/cua0", most probably you have no
+permissions to access the serial line device. It might be owned by root and
+has read/write access only by the owner for security reasons. If you do not
+intend to use this serial port for logging in into your machine, just change
+the permissions as root using: "chmod o+r+w /dev/cua0".
+.PP
+If the serial port behaves "strangely", e.g. if the permissions suddenly
+are altered again or the baud rate is reset automatically, you most
+likely have a "getty" running on the serial port. Check the file
+/etc/inittab or /etc/ttytab. You have to either stop getty running on
+that port or choose a different port for the connection to the palmtop.
+
+.SH EXIT CODES
+.nf
+	0 Success
+	1 Failure
+	2 User error
+	3 Internal error
+.fi
+.SH BUGS
+
+Unknown. Probably none :-)
+
+.SH COPYRIGHT
+
+Copyright (c) 1995 by Edward A. Falk
+Portions Copyright 1995 by "The PAL Group".
+Some modifications to version 1.1a-Tkb by Peter Watkins.
+All rights reserved.
+
+This program is free software; you can redistribute it and/or modify it
+under the terms of the GNU General Public License as published by the Free
+Software Foundation.
+
+.SH ACKNOWLEDGMENTS
+
+I want to thank the contributors to the PAL (Palmtop Application
+Library) who provided the basic routines the LX tools use. A
+special thank to Harry Konstas who "hacked" the communication
+format the HP Filer application uses, and to Andreas Garzotto who
+wrote the lxtools functions.
+.PP
+Edward Falk, March 1997

@@ -1,0 +1,22 @@
+
+To-do list:
+
+Overall:
+        (1)     Add support for Ed Falk's "lxbackup" utility
+	(2)	Add support for serial device locks to all
+		LXTOOLS utils and "lxbackup"
+        (3)     Improve the efficiency of the code.
+        (4)     File viewer: allow viewing files by copying to
+                a temp directory and then launching an appropriate
+                viewer. Probably an LXFileman-specific configuration
+                file *and* some existing mailcap-type file (Netscape
+                configuration?)  -- thoughts, anyone?
+
+Bugs to squash/features to add:
+
+	* Add cancel button to copy dialog box (to cancel remaining copies)
+	* Some sort of status window, presumably only for copies
+	* Look into copying without single-selecting a file first
+	* Try to make the main window resize vertically
+	* Try to eliminate Tk errors that pop up when items are clicked
+	  too quickly

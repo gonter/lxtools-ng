@@ -1,0 +1,33 @@
+
+LXTOOLS
+
+This distribution has been modified from the original source.
+
+Two basic changes have been made:
+	* incorporation of a cpp macro that makes the apps
+	  print to STDOUT instead of STDERR if a certain 
+	  environment variable is set ("LXTOOLS_STDOUT")
+	* another cpp macro that makes the apps give an
+	  exit code of 0 if LXTOOLS_STDOUT is set (otherwise
+	  they return the same codes they did before)
+
+-Peter Watkins, August 1999
+
+LXBACKUP
+
+lxbackup is a nice backup program written by Ed Falk. The code in
+this package is based on the lxbackup release from March of 1997.
+Primary changes: 
+	* "ifndef" added to keep Linux/gcc from complaining about
+	  the extern putval() line (also made change to CC definition
+	  in Makefile)
+	* changing fprintf() lines to use the LXTOOLS_STDOUT 
+	  env var for controlling output stream
+	* adding support for LXTOOLS_BAUD environment variable
+	  just as the LXTOOLS package does
+	* adding a "-c" option so it won't insist on naming the 
+	  directory in UNIX "c:", as FAT partitions (and some 
+	  fileservers?) won't allow the ":"
+
+-Peter Watkins, November 1997
+

@@ -1,0 +1,103 @@
+LX TOOLS 1.0a - Access files on the HP palmtops
+===============================================
+
+The LX tools are a set of commands that let you transfer files from the Unix
+system to your HP palmtop and the other way round via a serial cable. They
+also let you create and delete directories. On the palmtop, all you need is
+the built-in Filer application. Well, and of course you also need a cable,
+a palmtop and a Unix system.
+
+NEW IN VERSION 1.0a:
+
+- environment variables LXTOOLS_LINE and LXTOOLS_BAUD override
+  command line options
+
+- 8 serial lines are supported (instead of 4)
+
+- all messages are written to stderr (instead of stdout) so that
+  stdin/stdout can be used for data transfer.
+
+- files copied from the LX are now (configurable) in lower case
+
+NEW IN VERSION 1.1:
+
+- little endians / big endians should now work both (untested)
+
+- lxcopy can now recursively enter directories. Using this
+  option, you can backup the LX with one command.
+
+- lxcopy can be told to only copy files from the LX that have
+  the archive bit set (useful for backups).
+
+- several smaller fixes
+
+NEW IN VERSION 1.1a:
+
+- the serial line setup is no longer done with a "system(stty..." call,
+  but replaced by direct procedure calls. This should work on all
+  POSIX compliant systems.
+  
+NEW IN VERSION 1.1b:
+
+The changes for 1.1b were done by Paul Bernard (prb@thinkage.on.ca).
+I will attempt to answer questions and provide help with 1.1b but I'm
+not officially taking over maintanence of LX Tools at this time
+(1999/07).  When I offered these changes to Andreas he told me there
+wasn't a master copy and there were many other changes done by others
+which I don't have.
+
+- The packet retransmission code has been rewritten.  Previously if an
+  error occurred LX Tools would just timeout and abort the transfer.
+  Now it will retry the transmission.  This problem would be more
+  apparent on high speed connections.
+
+- Added baudrates of 57600 and 115200 for systems that can support such
+  speeds directly (Linux it seems, perhaps other modern systems as well.
+  I don't know if POSIX now supports higher speeds).
+
+- Fiddled the POSIX version of the serial line configuration so that LX
+  Tools will ignore CTS/RTS flow control and carrier detect.  (I don't
+  think that that HPLX's filer supports CTS/RTS flow control.)
+  
+NEW IN VERSION 1.1c (Peter Watkins, peterw@usa.net):
+
+- Re-integrated LXTOOLS_STDOUT changes for LXFileman
+  
+NEW IN VERSION 1.1d (Peter Watkins, peterw@usa.net):
+
+- 'lxbackup' modified for Year 2000 (years < 80 assumed to be 21st
+  century)
+- 'lxdir' now displays two-digit years in all cases
+
+VERSION 1.1e (Gerhard Gonter, gonter@ieee.org)
+
+- ports for FreeBSD and AIX
+
+INSTALLATION
+
+- unpack the compressed tar file (you already did that, didn't you ;-)
+
+- check the file "config.h". It should be OK for Linux systems,
+  but might need some changes for other systems.
+
+- if you don't have the gcc compiler, you might need to modify
+  Makefile
+
+- "make"
+
+- if you want to save some space: "make clean"
+
+- move "lxtools.1" to /usr/local/man/man1 or wherever you keep
+  the manual pages
+  
+- move the executables (lxdir, lxcopy, lxdel, lxmkdir and lxrmdir)
+  to where you want to keep them (probably /usr/local/bin)
+  
+- "man lxtools"
+
+- don't tell me you have done *all* above steps and still need
+  further instructions!
+
+Andreas Garzotto, Dec 1995
+
+$Id: README,v 1.2 2000/10/09 00:10:06 gonter Exp $

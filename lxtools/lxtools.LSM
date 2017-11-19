@@ -1,0 +1,18 @@
+
+Begin3
+Title:          LX tools - access files on the HP palmtops from Linux
+Version:        1.1
+Entered-date:   13DEC95
+Description:    Copy to/from, delete etc. files on the HP100LX/HP200LX
+                palmtop computers from a Linux system via a serial
+		line. Talks to the Filer application on the palmtop.
+Keywords:       HP100LX HP200LX palmtop communication comms serial file access
+Author:         garzotto@ics.uci.edu (Andreas Garzotto)
+Maintained-by:  
+Primary-site:   ftp.ics.uci.edu /pub/garzotto/palmtop
+                17k lxtools.tgz
+Alternate-site: sunsite.unc.edu /pub/Linux/apps/comm
+Original-site:  
+Platforms:      HP serial cable required
+Copying-policy: GPL
+End
