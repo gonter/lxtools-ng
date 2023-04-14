@@ -528,7 +528,7 @@ BackupFile(FILERCOM *pFiler, char *name, StackedName *namePtr)
 	  {
 	    char cmd[MAXPATHLEN] ;
 	    strcpy(cmd, "gzip ") ;
-	    strncat(cmd, name2, sizeof(cmd)) ;
+	    strncat(cmd, name2, sizeof(cmd) - 1 - strlen(cmd)) ;
 	    if( verbose ) fprintf(USE_OUT, "compress ... ") ;
 	    system(cmd) ;
 	  }
@@ -766,7 +766,7 @@ makePath(char *name)
 	  return 0 ;
 
 	fprintf(USE_OUT, "lxbackup: unable to make directory %s, %s\n",
-		path, sys_errlist[errno]) ;
+		path, strerror(errno)) ;
 
 	return -1 ;
 }
